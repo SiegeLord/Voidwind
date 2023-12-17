@@ -1,0 +1,35 @@
+Ship
+
+Items
+Armour
+Systems
+Crew
+
+Crew -> Healthy/Wounded
+
+Weapons -> Armour/Internal/Crew effectiveness
+
+Boarding -> Destroy less cargo?
+
+Maybe no ports? Just trade with existing ships? Simplify a bit. Capture ships?
+
+Ports needed for economy? I guess not necessarily. Forts!
+
+Combine bulk with items screens.
+
+Unified buy/sell/rearrange screen, based on slots!
+
+On main screen, control groups for weapons?
+
+
+For Wind, use A* I guess? Does A* work for asymmetrical costs? Maybe?
+
+
+
+Extra stuff:
+
+Water trails somehow?
+
+Day/Night cycle + sun shadows?
+
+Wind indicators somehow?

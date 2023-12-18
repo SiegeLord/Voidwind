@@ -84,7 +84,7 @@ impl Button
 		{
 			Event::MouseAxes { x, y, .. } =>
 			{
-                let (x, y) = (*x as f32, *y as f32);
+				let (x, y) = (*x as f32, *y as f32);
 				if x > start.x && x < end.x && y > start.y && y < end.y
 				{
 					return Some(Action::SelectMe);
@@ -112,7 +112,7 @@ impl Button
 			},
 			Event::MouseButtonUp { x, y, .. } =>
 			{
-                let (x, y) = (*x as f32, *y as f32);
+				let (x, y) = (*x as f32, *y as f32);
 				if x > start.x && x < end.x && y > start.y && y < end.y
 				{
 					state.sfx.play_sound("data/ui2.ogg").unwrap();
@@ -192,7 +192,7 @@ impl Toggle
 		{
 			Event::MouseAxes { x, y, .. } =>
 			{
-                let (x, y) = (*x as f32, *y as f32);
+				let (x, y) = (*x as f32, *y as f32);
 				if x > start.x && x < end.x && y > start.y && y < end.y
 				{
 					return Some(Action::SelectMe);
@@ -211,7 +211,7 @@ impl Toggle
 			},
 			Event::MouseButtonUp { x, y, .. } =>
 			{
-                let (x, y) = (*x as f32, *y as f32);
+				let (x, y) = (*x as f32, *y as f32);
 				if x > start.x && x < end.x && y > start.y && y < end.y
 				{
 					return Some(self.trigger(state));
@@ -333,7 +333,7 @@ impl Slider
 		{
 			Event::MouseAxes { x, y, .. } =>
 			{
-                let (x, y) = (*x as f32, *y as f32);
+				let (x, y) = (*x as f32, *y as f32);
 				if x > start.x && x < end.x && y > start.y && y < end.y
 				{
 					if self.grabbed
@@ -354,7 +354,7 @@ impl Slider
 			}
 			Event::MouseButtonDown { x, y, .. } =>
 			{
-                let (x, y) = (*x as f32, *y as f32);
+				let (x, y) = (*x as f32, *y as f32);
 				if x > start.x && x < end.x && y > start.y && y < end.y
 				{
 					state.sfx.play_sound("data/ui2.ogg").unwrap();

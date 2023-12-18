@@ -42,6 +42,7 @@ tiled = "0.10.2"
 gl = "0.14.0"
 gl_loader = "0.1.2"
 rect_packer = "0.2.1"
+memoffset = "0.9"
 
 [profile.release]
 debug = true

@@ -10,6 +10,7 @@ mod error;
 mod game;
 mod game_state;
 mod menu;
+mod mesh;
 mod sfx;
 mod sprite;
 mod ui;
@@ -22,31 +23,6 @@ use allegro_sys::*;
 use rand::prelude::*;
 use serde_derive::{Deserialize, Serialize};
 use std::rc::Rc;
-use std::sync;
-
-fn make_shader(
-	disp: &mut Display, vertex_path: &str, pixel_path: &str,
-) -> Result<sync::Weak<Shader>>
-{
-	let shader = disp.create_shader(ShaderPlatform::GLSL).unwrap();
-
-	shader
-		.upgrade()
-		.unwrap()
-		.attach_shader_source(
-			ShaderType::Vertex,
-			Some(&utils::read_to_string(vertex_path)?),
-		)
-		.unwrap();
-
-	shader
-		.upgrade()
-		.unwrap()
-		.attach_shader_source(ShaderType::Pixel, Some(&utils::read_to_string(pixel_path)?))
-		.unwrap();
-	shader.upgrade().unwrap().build().unwrap();
-	Ok(shader)
-}
 
 enum Screen
 {
@@ -82,17 +58,13 @@ fn real_main() -> Result<()>
 	let mut display = Display::new(&state.core, state.options.width, state.options.height)
 		.map_err(|_| "Couldn't create display".to_string())?;
 
+	state.load_shaders(&mut display)?;
+
 	gl_loader::init_gl();
 	gl::load_with(|symbol| gl_loader::get_proc_address(symbol) as *const _);
 
 	state.display_width = display.get_width() as f32;
 	state.display_height = display.get_height() as f32;
-
-	let basic_shader = make_shader(
-		&mut display,
-		"data/basic_vertex.glsl",
-		"data/basic_pixel.glsl",
-	)?;
 
 	let timer = Timer::new(&state.core, utils::DT as f64)
 		.map_err(|_| "Couldn't create timer".to_string())?;
@@ -139,11 +111,6 @@ fn real_main() -> Result<()>
 			}
 
 			let frame_start = state.core.get_time();
-
-			state
-				.core
-				.use_shader(Some(&*basic_shader.upgrade().unwrap()))
-				.unwrap();
 
 			unsafe {
 				gl::Disable(gl::CULL_FACE);

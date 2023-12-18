@@ -75,6 +75,18 @@ impl From<tiled::Error> for Error
 	}
 }
 
+impl From<gltf::Error> for Error
+{
+	fn from(error: gltf::Error) -> Self
+	{
+		Self {
+			message: format!("{}", error),
+			inner: Some(Box::new(error)),
+			backtrace: Backtrace::capture(),
+		}
+	}
+}
+
 impl fmt::Display for Error
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result

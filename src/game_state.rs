@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::{atlas, controls, sfx, sprite, utils};
+use crate::{atlas, controls, mesh, sfx, sprite, utils};
 use allegro::*;
 use allegro_font::*;
 use allegro_image::*;
@@ -9,7 +9,7 @@ use nalgebra::Point2;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::{fmt, path};
+use std::{fmt, path, sync};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Options
@@ -51,6 +51,30 @@ pub enum NextScreen
 	Quit,
 }
 
+fn make_shader(
+	disp: &mut Display, vertex_path: &str, pixel_path: &str,
+) -> Result<sync::Weak<Shader>>
+{
+	let shader = disp.create_shader(ShaderPlatform::GLSL).unwrap();
+
+	shader
+		.upgrade()
+		.unwrap()
+		.attach_shader_source(
+			ShaderType::Vertex,
+			Some(&utils::read_to_string(vertex_path)?),
+		)
+		.unwrap();
+
+	shader
+		.upgrade()
+		.unwrap()
+		.attach_shader_source(ShaderType::Pixel, Some(&utils::read_to_string(pixel_path)?))
+		.unwrap();
+	shader.upgrade().unwrap().build().unwrap();
+	Ok(shader)
+}
+
 pub struct GameState
 {
 	pub core: Core,
@@ -71,9 +95,12 @@ pub struct GameState
 	pub display_height: f32,
 	bitmaps: HashMap<String, Bitmap>,
 	sprites: HashMap<String, sprite::Sprite>,
+	meshes: HashMap<String, mesh::MultiMesh>,
 	pub controls: controls::ControlsHandler,
 	pub track_mouse: bool,
 	pub mouse_pos: Point2<i32>,
+
+	pub basic_shader: sync::Weak<Shader>,
 }
 
 pub fn load_options(core: &Core) -> Result<Options>
@@ -144,6 +171,7 @@ impl GameState
 			tick: 0,
 			bitmaps: HashMap::new(),
 			sprites: HashMap::new(),
+			meshes: HashMap::new(),
 			font: font,
 			ttf: ttf,
 			sfx: sfx,
@@ -156,7 +184,15 @@ impl GameState
 			controls: controls,
 			track_mouse: true,
 			mouse_pos: Point2::new(0, 0),
+			basic_shader: sync::Weak::new(),
 		})
+	}
+
+	pub fn load_shaders(&mut self, display: &mut Display) -> Result<()>
+	{
+		self.basic_shader =
+			make_shader(display, "data/basic_vertex.glsl", "data/basic_pixel.glsl")?;
+		Ok(())
 	}
 
 	pub fn cache_bitmap<'l>(&'l mut self, name: &str) -> Result<&'l Bitmap>
@@ -177,6 +213,15 @@ impl GameState
 		})
 	}
 
+	pub fn cache_mesh<'l>(&'l mut self, name: &str) -> Result<&'l mesh::MultiMesh>
+	{
+		Ok(match self.meshes.entry(name.to_string())
+		{
+			Entry::Occupied(o) => o.into_mut(),
+			Entry::Vacant(v) => v.insert(mesh::MultiMesh::load(name)?),
+		})
+	}
+
 	pub fn get_bitmap<'l>(&'l self, name: &str) -> Option<&'l Bitmap>
 	{
 		self.bitmaps.get(name)
@@ -185,6 +230,11 @@ impl GameState
 	pub fn get_sprite<'l>(&'l self, name: &str) -> Option<&'l sprite::Sprite>
 	{
 		self.sprites.get(name)
+	}
+
+	pub fn get_mesh<'l>(&'l self, name: &str) -> Option<&'l mesh::MultiMesh>
+	{
+		self.meshes.get(name)
 	}
 
 	pub fn time(&self) -> f64

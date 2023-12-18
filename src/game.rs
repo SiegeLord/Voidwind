@@ -12,112 +12,6 @@ use rand::prelude::*;
 
 use std::collections::HashMap;
 
-#[derive(Clone)]
-pub struct Mesh
-{
-	vtxs: Vec<NormVertex>,
-	idxs: Vec<i32>,
-	material: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-#[repr(C)]
-struct NormVertex
-{
-	x: f32,
-	y: f32,
-	z: f32,
-	u: f32,
-	v: f32,
-	nx: f32,
-	ny: f32,
-	nz: f32,
-	color: Color,
-}
-
-unsafe impl VertexType for NormVertex
-{
-	fn get_decl(prim: &PrimitivesAddon) -> VertexDecl
-	{
-		fn make_builder() -> std::result::Result<VertexDeclBuilder, ()>
-		{
-			VertexDeclBuilder::new(std::mem::size_of::<NormVertex>())
-				.pos(
-					VertexAttrStorage::F32_3,
-					memoffset::offset_of!(NormVertex, x),
-				)?
-				.uv(
-					VertexAttrStorage::F32_2,
-					memoffset::offset_of!(NormVertex, u),
-				)?
-				.color(memoffset::offset_of!(NormVertex, color))?
-				.user_attr(
-					VertexAttrStorage::F32_3,
-					memoffset::offset_of!(NormVertex, nx),
-				)
-		}
-
-		VertexDecl::from_builder(prim, &make_builder().unwrap())
-	}
-}
-
-fn load_meshes(gltf_file: &str) -> Vec<Mesh>
-{
-	let (document, buffers, _) = gltf::import(gltf_file).unwrap();
-	let mut meshes = vec![];
-	for node in document.nodes()
-	{
-		if let Some(mesh) = node.mesh()
-		{
-			for prim in mesh.primitives()
-			{
-				let mut vtxs = vec![];
-				let mut idxs = vec![];
-				let reader = prim.reader(|buffer| Some(&buffers[buffer.index()]));
-				if let (
-					Some(pos_iter),
-					Some(gltf::mesh::util::ReadTexCoords::F32(uv_iter)),
-					Some(normal_iter),
-				) = (
-					reader.read_positions(),
-					reader.read_tex_coords(0),
-					reader.read_normals(),
-				)
-				{
-					for ((pos, uv), normal) in pos_iter.zip(uv_iter).zip(normal_iter)
-					{
-						vtxs.push(NormVertex {
-							x: pos[0],
-							y: pos[1],
-							z: pos[2],
-							u: uv[0],
-							v: uv[1],
-							nx: normal[0],
-							ny: normal[1],
-							nz: normal[2],
-							color: Color::from_rgb_f(1., 1., 1.),
-						});
-					}
-				}
-
-				if let Some(iter) = reader.read_indices()
-				{
-					for idx in iter.into_u32()
-					{
-						idxs.push(idx as i32)
-					}
-				}
-				meshes.push(Mesh {
-					vtxs: vtxs,
-					idxs: idxs,
-					material: prim.material().name().map(|x| x.into()),
-				});
-			}
-		}
-	}
-	meshes
-}
-
 pub struct Game
 {
 	map: Map,
@@ -263,7 +157,6 @@ struct Map
 	rng: StdRng,
 	player_pos: Point3<f32>,
 	project: Perspective3<f32>,
-	meshes: Vec<Mesh>,
 }
 
 impl Map
@@ -273,14 +166,13 @@ impl Map
 		let rng = StdRng::seed_from_u64(thread_rng().gen::<u16>() as u64);
 		let world = hecs::World::new();
 
-		let meshes = load_meshes("data/test.glb");
+		state.cache_mesh("data/test.glb")?;
 
 		Ok(Self {
 			world: world,
 			rng: rng,
 			player_pos: Point3::new(0., 0., 0.),
 			project: utils::projection_transform(state.display_width, state.display_height),
-			meshes: meshes,
 		})
 	}
 
@@ -324,6 +216,11 @@ impl Map
 
 		state
 			.core
+			.use_shader(Some(&*state.basic_shader.upgrade().unwrap()))
+			.unwrap();
+
+		state
+			.core
 			.use_projection_transform(&utils::mat4_to_transform(self.project.into_inner()));
 
 		let camera = self.make_camera();
@@ -338,36 +235,17 @@ impl Map
 			.core
 			.use_transform(&utils::mat4_to_transform(camera.to_homogeneous()));
 
-		for mesh in self.meshes.iter()
-		{
-			state.prim.draw_indexed_prim(
-				&mesh.vtxs[..],
-				Option::<&Bitmap>::None,
-				//mesh.material					.as_ref()					.and_then(|m| materials.get(m.as_str())),
-				&mesh.idxs[..],
-				0,
-				mesh.idxs.len() as u32,
-				PrimType::TriangleList,
-			);
-		}
+		let mesh = state.get_mesh("data/test.glb").unwrap();
+
+		mesh.draw(&state.prim);
 
 		let shift = Isometry3::new(Vector3::new(0., 0., -10.), Vector3::zeros());
 		state.core.use_transform(&utils::mat4_to_transform(
 			camera.to_homogeneous() * shift.to_homogeneous(),
 		));
 
-		for mesh in self.meshes.iter()
-		{
-			state.prim.draw_indexed_prim(
-				&mesh.vtxs[..],
-				Option::<&Bitmap>::None,
-				//mesh.material					.as_ref()					.and_then(|m| materials.get(m.as_str())),
-				&mesh.idxs[..],
-				0,
-				mesh.idxs.len() as u32,
-				PrimType::TriangleList,
-			);
-		}
+		mesh.draw(&state.prim);
+
 		Ok(())
 	}
 }

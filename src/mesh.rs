@@ -1,20 +1,28 @@
 use crate::error::Result;
+use crate::utils;
+use serde_derive::{Deserialize, Serialize};
 
 use allegro::*;
 use allegro_primitives::*;
 
-#[derive(Clone)]
-pub struct Mesh
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Material
 {
-	vtxs: Vec<NormVertex>,
-	idxs: Vec<i32>,
-	material: Option<String>,
+	pub texture: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
+pub struct Mesh
+{
+	pub vtxs: Vec<NormVertex>,
+	pub idxs: Vec<i32>,
+	pub material: Option<Material>,
+}
+
+#[derive(Clone, Debug)]
 pub struct MultiMesh
 {
-	meshes: Vec<Mesh>,
+	pub meshes: Vec<Mesh>,
 }
 
 impl MultiMesh
@@ -65,10 +73,16 @@ impl MultiMesh
 							idxs.push(idx as i32)
 						}
 					}
+
+					let material = prim
+						.material()
+						.name()
+						.map(|x| utils::load_config(&format!("data/{}.cfg", x)))
+						.map_or(Ok(None), |x| x.map(Some))?;
 					meshes.push(Mesh {
 						vtxs: vtxs,
 						idxs: idxs,
-						material: prim.material().name().map(|x| x.into()),
+						material: material,
 					});
 				}
 			}
@@ -76,13 +90,13 @@ impl MultiMesh
 		Ok(Self { meshes: meshes })
 	}
 
-	pub fn draw(&self, prim: &PrimitivesAddon)
+	pub fn draw<'l, T: Fn(&str) -> Option<&'l Bitmap>>(&self, prim: &PrimitivesAddon, bitmap_fn: T)
 	{
 		for mesh in self.meshes.iter()
 		{
 			prim.draw_indexed_prim(
 				&mesh.vtxs[..],
-				Option::<&Bitmap>::None,
+				mesh.material.as_ref().and_then(|m| bitmap_fn(&m.texture)),
 				//mesh.material					.as_ref()					.and_then(|m| materials.get(m.as_str())),
 				&mesh.idxs[..],
 				0,
@@ -95,7 +109,7 @@ impl MultiMesh
 
 #[derive(Clone, Debug)]
 #[repr(C)]
-struct NormVertex
+pub struct NormVertex
 {
 	x: f32,
 	y: f32,

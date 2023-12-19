@@ -95,7 +95,7 @@ fn real_main() -> Result<()>
 	let mut logics_without_draw = 0;
 	let mut old_fullscreen = state.options.fullscreen;
 	let mut prev_frame_start = state.core.get_time();
-	state.core.grab_mouse(&display).ok();
+	//state.core.grab_mouse(&display).ok();
 	//display.show_cursor(false).ok();
 
 	timer.start();
@@ -155,19 +155,19 @@ fn real_main() -> Result<()>
 			Event::DisplayClose { .. } => quit = true,
 			Event::DisplaySwitchIn { .. } =>
 			{
-				state.core.grab_mouse(&display).ok();
+				//state.core.grab_mouse(&display).ok();
 				display.show_cursor(false).ok();
 				state.track_mouse = true;
 			}
 			Event::DisplaySwitchOut { .. } =>
 			{
-				state.core.ungrab_mouse().ok();
+				//state.core.ungrab_mouse().ok();
 				display.show_cursor(true).ok();
 				state.track_mouse = false;
 			}
 			Event::MouseButtonDown { .. } =>
 			{
-				state.core.grab_mouse(&display).ok();
+				//state.core.grab_mouse(&display).ok();
 				display.show_cursor(false).ok();
 				state.track_mouse = true;
 			}

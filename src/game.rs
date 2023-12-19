@@ -166,7 +166,7 @@ impl Map
 		let rng = StdRng::seed_from_u64(thread_rng().gen::<u16>() as u64);
 		let world = hecs::World::new();
 
-		state.cache_mesh("data/test.glb")?;
+		game_state::cache_mesh(state, "data/test.glb")?;
 
 		Ok(Self {
 			world: world,
@@ -237,14 +237,14 @@ impl Map
 
 		let mesh = state.get_mesh("data/test.glb").unwrap();
 
-		mesh.draw(&state.prim);
+		mesh.draw(&state.prim, |s| state.get_bitmap(s));
 
 		let shift = Isometry3::new(Vector3::new(0., 0., -10.), Vector3::zeros());
 		state.core.use_transform(&utils::mat4_to_transform(
 			camera.to_homogeneous() * shift.to_homogeneous(),
 		));
 
-		mesh.draw(&state.prim);
+		mesh.draw(&state.prim, |s| state.get_bitmap(s));
 
 		Ok(())
 	}

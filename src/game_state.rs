@@ -213,13 +213,14 @@ impl GameState
 		})
 	}
 
-	pub fn cache_mesh<'l>(&'l mut self, name: &str) -> Result<&'l mesh::MultiMesh>
+	fn cache_mesh<'l>(&'l mut self, name: &str) -> Result<&'l mesh::MultiMesh>
 	{
-		Ok(match self.meshes.entry(name.to_string())
+		let mesh = match self.meshes.entry(name.to_string())
 		{
 			Entry::Occupied(o) => o.into_mut(),
 			Entry::Vacant(v) => v.insert(mesh::MultiMesh::load(name)?),
-		})
+		};
+		Ok(mesh)
 	}
 
 	pub fn get_bitmap<'l>(&'l self, name: &str) -> Option<&'l Bitmap>
@@ -241,4 +242,22 @@ impl GameState
 	{
 		self.tick as f64 * utils::DT as f64
 	}
+}
+
+pub fn cache_mesh(state: &mut GameState, name: &str) -> Result<()>
+{
+	let mesh = state.cache_mesh(name)?;
+	let mut textures = vec![];
+	for mesh in &mesh.meshes
+	{
+		if let Some(material) = mesh.material.as_ref()
+		{
+			textures.push(material.texture.clone());
+		}
+	}
+	for texture in textures
+	{
+		state.cache_bitmap(&texture)?;
+	}
+	Ok(())
 }

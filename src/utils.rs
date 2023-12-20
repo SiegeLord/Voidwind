@@ -155,6 +155,27 @@ pub fn load_sample(audio: &AudioAddon, path: &str) -> Result<Sample>
 	Ok(Sample::load(audio, path).map_err(|_| format!("Couldn't load '{}'", path))?)
 }
 
+/// x/y need to be in [-1, 1]
+pub fn get_ground_from_screen(
+	x: f32, y: f32, project: Perspective3<f32>, camera: Isometry3<f32>,
+) -> Point3<f32>
+{
+	let near_point = Point3::new(x, y, -1.);
+	let far_point = Point3::new(x, y, 1.);
+
+	let near_unprojected = project.unproject_point(&near_point);
+	let far_unprojected = project.unproject_point(&far_point);
+
+	let camera_inv = camera.inverse();
+
+	let start = camera_inv * near_unprojected;
+	let end = camera_inv * far_unprojected;
+
+	let dir = end - start;
+	let f = (-start.y) / dir.y;
+	start + f * dir
+}
+
 pub fn nearest_line_point(v1: Point2<f32>, v2: Point2<f32>, test_point: Point2<f32>)
 	-> Point2<f32>
 {

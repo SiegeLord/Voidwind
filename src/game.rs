@@ -151,10 +151,42 @@ impl Game
 	}
 }
 
+fn make_target(
+	pos: Point3<f32>, world: &mut hecs::World, state: &mut game_state::GameState,
+) -> Result<hecs::Entity>
+{
+	let mesh = "data/target.glb";
+	game_state::cache_mesh(state, mesh)?;
+	let res = world.spawn((
+		comps::Position { pos: pos, dir: 0. },
+		comps::Mesh { mesh: mesh.into() },
+	));
+	Ok(res)
+}
+
+fn make_player(
+	pos: Point3<f32>, world: &mut hecs::World, state: &mut game_state::GameState,
+) -> Result<hecs::Entity>
+{
+	let mesh = "data/test.glb";
+	game_state::cache_mesh(state, mesh)?;
+	let res = world.spawn((
+		comps::Position { pos: pos, dir: 0. },
+		comps::Velocity {
+			vel: Vector3::zeros(),
+			dir_vel: 0.,
+		},
+		comps::Mesh { mesh: mesh.into() },
+		comps::Target { pos: None },
+	));
+	Ok(res)
+}
+
 struct Map
 {
 	world: hecs::World,
 	rng: StdRng,
+	player: hecs::Entity,
 	player_pos: Point3<f32>,
 	project: Perspective3<f32>,
 }
@@ -164,14 +196,15 @@ impl Map
 	fn new(state: &mut game_state::GameState) -> Result<Self>
 	{
 		let rng = StdRng::seed_from_u64(thread_rng().gen::<u16>() as u64);
-		let world = hecs::World::new();
+		let mut world = hecs::World::new();
 
-		game_state::cache_mesh(state, "data/test.glb")?;
+		let player = make_player(Point3::new(0., 0., 0.), &mut world, state)?;
 
 		Ok(Self {
 			world: world,
 			rng: rng,
 			player_pos: Point3::new(0., 0., 0.),
+			player: player,
 			project: utils::projection_transform(state.display_width, state.display_height),
 		})
 	}
@@ -185,11 +218,83 @@ impl Map
 		)
 	}
 
-	fn logic(
-		&mut self, _state: &mut game_state::GameState,
-	) -> Result<Option<game_state::NextScreen>>
+	fn logic(&mut self, state: &mut game_state::GameState)
+		-> Result<Option<game_state::NextScreen>>
 	{
 		let mut to_die = vec![];
+		let dt = utils::DT as f32;
+
+		// Physics
+		for (_, (pos, vel)) in self
+			.world
+			.query::<(&mut comps::Position, &comps::Velocity)>()
+			.iter()
+		{
+			pos.pos += dt * vel.vel;
+			pos.dir += dt * vel.dir_vel;
+		}
+
+		// Add target
+		let want_move = state.controls.get_action_state(controls::Action::Move) > 0.5;
+		if want_move
+		{
+			state.controls.clear_action_state(controls::Action::Move);
+
+			let (x, y) = (state.mouse_pos.x, state.mouse_pos.y);
+			let fx = -1. + 2. * x as f32 / state.display_width;
+			let fy = -1. + 2. * y as f32 / state.display_height;
+			let camera = self.make_camera();
+			let ground_pos = utils::get_ground_from_screen(fx, -fy, self.project, camera);
+
+			let mut add_target = false;
+			if let Ok(mut target) = self.world.get::<&mut comps::Target>(self.player)
+			{
+				target.pos = Some(ground_pos);
+				add_target = true;
+			}
+
+			if add_target
+			{
+				make_target(ground_pos, &mut self.world, state)?;
+			}
+		}
+
+		// Target movement.
+		for (_, (target, pos, vel)) in self
+			.world
+			.query::<(&mut comps::Target, &comps::Position, &mut comps::Velocity)>()
+			.iter()
+		{
+			if target.pos.is_none()
+			{
+				continue;
+			}
+			let target_pos = target.pos.unwrap();
+			let diff = target_pos - pos.pos;
+			if diff.magnitude() < 0.1
+			{
+				vel.vel = Vector3::zeros();
+				vel.dir_vel = 0.;
+				continue;
+			}
+
+			let diff = diff.xz().normalize();
+			let rot = Rotation2::new(-pos.dir);
+			let forward = rot * Vector2::new(0., -1.);
+			let left = rot * Vector2::new(1., 0.);
+			if diff.dot(&left) > 0.
+			{
+				vel.dir_vel = -4.0;
+			}
+			else
+			{
+				vel.dir_vel = 4.0;
+			}
+			if forward.dot(&diff) > 0.5
+			{
+				vel.vel = 10. * Vector3::new(forward.x, 0., forward.y);
+			}
+		}
 
 		// Remove dead entities
 		to_die.sort();
@@ -224,27 +329,22 @@ impl Map
 			.use_projection_transform(&utils::mat4_to_transform(self.project.into_inner()));
 
 		let camera = self.make_camera();
-		//let camera = make_camera(Point3::new(5., 5., -5.), Point3::new(0., 0., 0.));
-		//let height = 30.;
-		//let camera = utils::make_camera(
-		//    self.player_pos + Vector3::new(0., height, height / 2.),
-		//    self.player_pos,
-		//);
 
-		state
-			.core
-			.use_transform(&utils::mat4_to_transform(camera.to_homogeneous()));
+		for (_, (pos, mesh)) in self
+			.world
+			.query::<(&comps::Position, &comps::Mesh)>()
+			.iter()
+		{
+			let shift = Isometry3::new(pos.pos.coords, pos.dir * Vector3::y());
+			state.core.use_transform(&utils::mat4_to_transform(
+				camera.to_homogeneous() * shift.to_homogeneous(),
+			));
 
-		let mesh = state.get_mesh("data/test.glb").unwrap();
-
-		mesh.draw(&state.prim, |s| state.get_bitmap(s));
-
-		let shift = Isometry3::new(Vector3::new(0., 0., -10.), Vector3::zeros());
-		state.core.use_transform(&utils::mat4_to_transform(
-			camera.to_homogeneous() * shift.to_homogeneous(),
-		));
-
-		mesh.draw(&state.prim, |s| state.get_bitmap(s));
+			state
+				.get_mesh(&mesh.mesh)
+				.unwrap()
+				.draw(&state.prim, |s| state.get_bitmap(s));
+		}
 
 		Ok(())
 	}

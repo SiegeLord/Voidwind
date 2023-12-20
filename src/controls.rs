@@ -6,12 +6,7 @@ use std::fmt;
 #[derive(PartialEq, Eq, Hash, Serialize, Deserialize, Copy, Clone, Debug, PartialOrd, Ord)]
 pub enum Action
 {
-	BuildHouse,
-	BuildMine,
-	BuildPort,
-	BuildRoad,
-	BuildCafe,
-	Destroy,
+	Move,
 }
 
 impl Action
@@ -20,12 +15,7 @@ impl Action
 	{
 		match self
 		{
-			Action::BuildHouse => "House",
-			Action::BuildMine => "Mine",
-			Action::BuildPort => "Port",
-			Action::BuildRoad => "Road",
-			Action::BuildCafe => "Cafe",
-			Action::Destroy => "Destroy",
+			Action::Move => "House",
 		}
 	}
 }
@@ -472,30 +462,7 @@ impl Controls
 	pub fn new() -> Self
 	{
 		let mut action_to_inputs = BTreeMap::new();
-		action_to_inputs.insert(
-			Action::BuildHouse,
-			[Some(Input::Keyboard(allegro::KeyCode::H)), None],
-		);
-		action_to_inputs.insert(
-			Action::BuildPort,
-			[Some(Input::Keyboard(allegro::KeyCode::P)), None],
-		);
-		action_to_inputs.insert(
-			Action::BuildCafe,
-			[Some(Input::Keyboard(allegro::KeyCode::C)), None],
-		);
-		action_to_inputs.insert(
-			Action::BuildRoad,
-			[Some(Input::Keyboard(allegro::KeyCode::R)), None],
-		);
-		action_to_inputs.insert(
-			Action::BuildMine,
-			[Some(Input::Keyboard(allegro::KeyCode::M)), None],
-		);
-		action_to_inputs.insert(
-			Action::Destroy,
-			[Some(Input::Keyboard(allegro::KeyCode::D)), None],
-		);
+		action_to_inputs.insert(Action::Move, [Some(Input::MouseButton(0)), None]);
 
 		Self {
 			action_to_inputs: action_to_inputs,

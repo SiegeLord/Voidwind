@@ -156,19 +156,19 @@ fn real_main() -> Result<()>
 			Event::DisplaySwitchIn { .. } =>
 			{
 				//state.core.grab_mouse(&display).ok();
-				display.show_cursor(false).ok();
+				//display.show_cursor(false).ok();
 				state.track_mouse = true;
 			}
 			Event::DisplaySwitchOut { .. } =>
 			{
 				//state.core.ungrab_mouse().ok();
-				display.show_cursor(true).ok();
+				//display.show_cursor(true).ok();
 				state.track_mouse = false;
 			}
 			Event::MouseButtonDown { .. } =>
 			{
 				//state.core.grab_mouse(&display).ok();
-				display.show_cursor(false).ok();
+				//display.show_cursor(false).ok();
 				state.track_mouse = true;
 			}
 			Event::TimerTick { .. } =>

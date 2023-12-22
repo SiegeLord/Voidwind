@@ -7,6 +7,7 @@ use std::fmt;
 pub enum Action
 {
 	Move,
+	Queue,
 }
 
 impl Action
@@ -15,7 +16,8 @@ impl Action
 	{
 		match self
 		{
-			Action::Move => "House",
+			Action::Move => "Move",
+			Action::Queue => "Queue",
 		}
 	}
 }
@@ -463,6 +465,10 @@ impl Controls
 	{
 		let mut action_to_inputs = BTreeMap::new();
 		action_to_inputs.insert(Action::Move, [Some(Input::MouseButton(0)), None]);
+		action_to_inputs.insert(
+			Action::Queue,
+			[Some(Input::Keyboard(allegro::KeyCode::LShift)), None],
+		);
 
 		Self {
 			action_to_inputs: action_to_inputs,

@@ -177,7 +177,7 @@ fn make_player(
 			dir_vel: 0.,
 		},
 		comps::Mesh { mesh: mesh.into() },
-		comps::Target { pos: None },
+		comps::Target { waypoints: vec![] },
 	));
 	Ok(res)
 }
@@ -236,6 +236,7 @@ impl Map
 
 		// Add target
 		let want_move = state.controls.get_action_state(controls::Action::Move) > 0.5;
+		let want_queue = state.controls.get_action_state(controls::Action::Queue) > 0.5;
 		if want_move
 		{
 			state.controls.clear_action_state(controls::Action::Move);
@@ -246,17 +247,28 @@ impl Map
 			let camera = self.make_camera();
 			let ground_pos = utils::get_ground_from_screen(fx, -fy, self.project, camera);
 
-			let mut add_target = false;
+			let marker = make_target(ground_pos, &mut self.world, state)?;
 			if let Ok(mut target) = self.world.get::<&mut comps::Target>(self.player)
 			{
-				target.pos = Some(ground_pos);
-				add_target = true;
+				if !want_queue
+				{
+					for waypoint in &target.waypoints
+					{
+						to_die.push(waypoint.marker);
+					}
+					target.waypoints.clear();
+				}
+				target.waypoints.push(comps::Waypoint {
+					pos: ground_pos,
+					marker: marker,
+				});
 			}
+		}
 
-			if add_target
-			{
-				make_target(ground_pos, &mut self.world, state)?;
-			}
+		// Update player pos.
+		if let Ok(pos) = self.world.get::<&comps::Position>(self.player)
+		{
+			self.player_pos = pos.pos;
 		}
 
 		// Target movement.
@@ -265,16 +277,21 @@ impl Map
 			.query::<(&mut comps::Target, &comps::Position, &mut comps::Velocity)>()
 			.iter()
 		{
-			if target.pos.is_none()
+			if target.waypoints.is_empty()
 			{
 				continue;
 			}
-			let target_pos = target.pos.unwrap();
-			let diff = target_pos - pos.pos;
+			let waypoint = target.waypoints.first().unwrap();
+			let diff = waypoint.pos - pos.pos;
 			if diff.magnitude() < 0.1
 			{
-				vel.vel = Vector3::zeros();
-				vel.dir_vel = 0.;
+				if target.waypoints.len() == 1
+				{
+					vel.vel = Vector3::zeros();
+					vel.dir_vel = 0.;
+				}
+				to_die.push(waypoint.marker);
+				target.waypoints.remove(0);
 				continue;
 			}
 
@@ -290,10 +307,7 @@ impl Map
 			{
 				vel.dir_vel = 4.0;
 			}
-			if forward.dot(&diff) > 0.5
-			{
-				vel.vel = 10. * Vector3::new(forward.x, 0., forward.y);
-			}
+			vel.vel = 10. * Vector3::new(forward.x, 0., forward.y);
 		}
 
 		// Remove dead entities

@@ -19,9 +19,16 @@ pub struct Velocity
 }
 
 #[derive(Debug, Copy, Clone)]
+pub struct Waypoint
+{
+	pub pos: Point3<f32>,
+	pub marker: hecs::Entity,
+}
+
+#[derive(Debug, Clone)]
 pub struct Target
 {
-	pub pos: Option<Point3<f32>>,
+	pub waypoints: Vec<Waypoint>,
 }
 
 #[derive(Debug, Clone)]

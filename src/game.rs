@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::{astar, components as comps, controls, game_state, sprite, ui, utils};
+use crate::{astar, components as comps, controls, game_state, mesh, sprite, ui, utils};
 use allegro::*;
 use allegro_font::*;
 use allegro_primitives::*;
@@ -335,15 +335,59 @@ impl Map
 
 		state
 			.core
-			.use_shader(Some(&*state.basic_shader.upgrade().unwrap()))
-			.unwrap();
-
-		state
-			.core
 			.use_projection_transform(&utils::mat4_to_transform(self.project.into_inner()));
 
 		let camera = self.make_camera();
 
+		let tl = utils::get_ground_from_screen(-1.0, 1.0, self.project, camera);
+		let tr = utils::get_ground_from_screen(1.0, 1.0, self.project, camera);
+		let bl = utils::get_ground_from_screen(-1.0, -1.0, self.project, camera);
+		let br = utils::get_ground_from_screen(1.0, -1.0, self.project, camera);
+		let vtxs = [
+			mesh::WaterVertex {
+				x: tl.x,
+				y: tl.y,
+				z: tl.z,
+			},
+			mesh::WaterVertex {
+				x: tr.x,
+				y: tr.y,
+				z: tr.z,
+			},
+			mesh::WaterVertex {
+				x: br.x,
+				y: br.y,
+				z: br.z,
+			},
+			mesh::WaterVertex {
+				x: bl.x,
+				y: bl.y,
+				z: bl.z,
+			},
+		];
+		state
+			.core
+			.use_transform(&utils::mat4_to_transform(camera.to_homogeneous()));
+		state
+			.core
+			.use_shader(Some(&*state.water_shader.upgrade().unwrap()))
+			.unwrap();
+		state
+			.core
+			.set_shader_uniform("time", &[state.core.get_time() as f32][..])
+			.ok(); //unwrap();
+		state.prim.draw_prim(
+			&vtxs[..],
+			Option::<&Bitmap>::None,
+			0,
+			4,
+			PrimType::TriangleFan,
+		);
+
+		state
+			.core
+			.use_shader(Some(&*state.basic_shader.upgrade().unwrap()))
+			.unwrap();
 		for (_, (pos, mesh)) in self
 			.world
 			.query::<(&comps::Position, &comps::Mesh)>()

@@ -101,6 +101,7 @@ pub struct GameState
 	pub mouse_pos: Point2<i32>,
 
 	pub basic_shader: sync::Weak<Shader>,
+	pub water_shader: sync::Weak<Shader>,
 }
 
 pub fn load_options(core: &Core) -> Result<Options>
@@ -185,6 +186,7 @@ impl GameState
 			track_mouse: true,
 			mouse_pos: Point2::new(0, 0),
 			basic_shader: sync::Weak::new(),
+			water_shader: sync::Weak::new(),
 		})
 	}
 
@@ -192,6 +194,8 @@ impl GameState
 	{
 		self.basic_shader =
 			make_shader(display, "data/basic_vertex.glsl", "data/basic_pixel.glsl")?;
+        self.water_shader =
+            make_shader(display, "data/water_vertex.glsl", "data/water_pixel.glsl")?;
 		Ok(())
 	}
 

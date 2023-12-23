@@ -97,7 +97,6 @@ impl MultiMesh
 			prim.draw_indexed_prim(
 				&mesh.vtxs[..],
 				mesh.material.as_ref().and_then(|m| bitmap_fn(&m.texture)),
-				//mesh.material					.as_ref()					.and_then(|m| materials.get(m.as_str())),
 				&mesh.idxs[..],
 				0,
 				mesh.idxs.len() as u32,
@@ -142,6 +141,31 @@ unsafe impl VertexType for NormVertex
 					VertexAttrStorage::F32_3,
 					memoffset::offset_of!(NormVertex, nx),
 				)
+		}
+
+		VertexDecl::from_builder(prim, &make_builder().unwrap())
+	}
+}
+
+#[derive(Clone, Debug)]
+#[repr(C)]
+pub struct WaterVertex
+{
+	pub x: f32,
+	pub y: f32,
+	pub z: f32,
+}
+
+unsafe impl VertexType for WaterVertex
+{
+	fn get_decl(prim: &PrimitivesAddon) -> VertexDecl
+	{
+		fn make_builder() -> std::result::Result<VertexDeclBuilder, ()>
+		{
+			VertexDeclBuilder::new(std::mem::size_of::<WaterVertex>()).pos(
+				VertexAttrStorage::F32_3,
+				memoffset::offset_of!(WaterVertex, x),
+			)
 		}
 
 		VertexDecl::from_builder(prim, &make_builder().unwrap())

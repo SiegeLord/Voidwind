@@ -75,6 +75,34 @@ fn make_shader(
 	Ok(shader)
 }
 
+fn make_default_shader(core: &Core, disp: &mut Display) -> Result<sync::Weak<Shader>>
+{
+	let shader = disp.create_shader(ShaderPlatform::GLSL).unwrap();
+	shader
+		.upgrade()
+		.unwrap()
+		.attach_shader_source(
+			ShaderType::Vertex,
+			core.get_default_shader_source(ShaderPlatform::GLSL, ShaderType::Vertex)
+				.as_ref()
+				.map(|s| s.as_str()),
+		)
+		.unwrap();
+
+	shader
+		.upgrade()
+		.unwrap()
+		.attach_shader_source(
+			ShaderType::Pixel,
+			core.get_default_shader_source(ShaderPlatform::GLSL, ShaderType::Pixel)
+				.as_ref()
+				.map(|s| s.as_str()),
+		)
+		.unwrap();
+	shader.upgrade().unwrap().build().unwrap();
+	Ok(shader)
+}
+
 pub struct GameState
 {
 	pub core: Core,
@@ -102,6 +130,7 @@ pub struct GameState
 
 	pub basic_shader: sync::Weak<Shader>,
 	pub water_shader: sync::Weak<Shader>,
+	pub default_shader: sync::Weak<Shader>,
 }
 
 pub fn load_options(core: &Core) -> Result<Options>
@@ -187,6 +216,7 @@ impl GameState
 			mouse_pos: Point2::new(0, 0),
 			basic_shader: sync::Weak::new(),
 			water_shader: sync::Weak::new(),
+			default_shader: sync::Weak::new(),
 		})
 	}
 
@@ -196,6 +226,7 @@ impl GameState
 			make_shader(display, "data/basic_vertex.glsl", "data/basic_pixel.glsl")?;
 		self.water_shader =
 			make_shader(display, "data/water_vertex.glsl", "data/water_pixel.glsl")?;
+		self.default_shader = make_default_shader(&self.core, display)?;
 		Ok(())
 	}
 

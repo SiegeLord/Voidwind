@@ -184,6 +184,8 @@ fn make_projectile(
 		comps::TimeToDie {
 			time_to_die: state.time() + 1.,
 		},
+		comps::AffectedByGravity,
+		comps::CollidesWithWater,
 	));
 	Ok(res)
 }
@@ -207,11 +209,23 @@ fn make_player(
 		comps::Equipment {
 			slots: vec![
 				comps::ItemSlot {
-					pos: Point2::new(0.0, 1.0),
+					pos: Point2::new(0.5, 1.0),
 					dir: PI / 2.0,
+
 					item: Some(comps::Item {
 						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
-							fire_interval: 0.1,
+							fire_interval: 0.5,
+							arc: PI / 2.0,
+						})),
+					}),
+				},
+				comps::ItemSlot {
+					pos: Point2::new(-0.5, 1.0),
+					dir: PI / 2.0,
+
+					item: Some(comps::Item {
+						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
+							fire_interval: 0.5,
 							arc: PI / 2.0,
 						})),
 					}),
@@ -300,6 +314,15 @@ impl Map
 		)
 	}
 
+	fn get_mouse_ground_pos(&self, state: &game_state::GameState) -> Point3<f32>
+	{
+		let (x, y) = (state.mouse_pos.x, state.mouse_pos.y);
+		let fx = -1. + 2. * x as f32 / state.display_width;
+		let fy = -1. + 2. * y as f32 / state.display_height;
+		let camera = self.make_camera();
+		utils::get_ground_from_screen(fx, -fy, self.project, camera)
+	}
+
 	fn logic(&mut self, state: &mut game_state::GameState)
 		-> Result<Option<game_state::NextScreen>>
 	{
@@ -327,6 +350,14 @@ impl Map
 		}
 
 		// Physics
+		for (_, (_, vel)) in self
+			.world
+			.query::<(&comps::AffectedByGravity, &mut comps::Velocity)>()
+			.iter()
+		{
+			vel.vel.y -= dt * 100.0;
+		}
+
 		for (_, (pos, vel)) in self
 			.world
 			.query::<(&mut comps::Position, &comps::Velocity)>()
@@ -334,6 +365,18 @@ impl Map
 		{
 			pos.pos += dt * vel.vel;
 			pos.dir += dt * vel.dir_vel;
+		}
+
+		// Collides with water.
+		for (id, (_, pos)) in self
+			.world
+			.query::<(&comps::CollidesWithWater, &mut comps::Position)>()
+			.iter()
+		{
+			if pos.pos.y < -0.0
+			{
+				to_die.push(id);
+			}
 		}
 
 		// Collision resolution.
@@ -408,17 +451,11 @@ impl Map
 		let want_move = state.controls.get_action_state(controls::Action::Move) > 0.5;
 		let want_queue = state.controls.get_action_state(controls::Action::Queue) > 0.5;
 		let want_action_1 = state.controls.get_action_state(controls::Action::Action1) > 0.5;
+		let mouse_ground_pos = self.get_mouse_ground_pos(state);
 		if want_move
 		{
 			state.controls.clear_action_state(controls::Action::Move);
-
-			let (x, y) = (state.mouse_pos.x, state.mouse_pos.y);
-			let fx = -1. + 2. * x as f32 / state.display_width;
-			let fy = -1. + 2. * y as f32 / state.display_height;
-			let camera = self.make_camera();
-			let ground_pos = utils::get_ground_from_screen(fx, -fy, self.project, camera);
-
-			let marker = make_target(ground_pos, &mut self.world, state)?;
+			let marker = make_target(mouse_ground_pos, &mut self.world, state)?;
 			if let Ok(mut target) = self.world.get::<&mut comps::Target>(self.player)
 			{
 				if !want_queue
@@ -426,7 +463,7 @@ impl Map
 					target.clear(|m| to_die.push(m));
 				}
 				target.waypoints.push(comps::Waypoint {
-					pos: ground_pos,
+					pos: mouse_ground_pos,
 					marker: Some(marker),
 				});
 			}
@@ -462,18 +499,47 @@ impl Map
 						{
 							if state.time() > weapon.time_to_fire
 							{
-								weapon.time_to_fire =
-									state.time() + weapon.stats.fire_interval as f64;
 								let rot = Rotation2::new(pos.dir);
 								let rot_slot = Rotation2::new(slot.dir);
-								let spawn_pos = pos.pos.zx() + rot * slot.pos.coords;
-								let spawn_pos = Point3::new(spawn_pos.y, 3., spawn_pos.x);
+								let slot_pos = pos.pos.zx() + rot * slot.pos.coords;
+								let slot_dir = rot_slot * rot * Vector2::new(1., 0.);
+								let target_dir = (mouse_ground_pos.zx() - slot_pos).normalize();
+								let min_dot = (weapon.stats.arc / 2.).cos();
 
-								let spawn_dir = rot_slot * rot * Vector2::new(1., 0.);
-								let spawn_dir =
-									Vector3::new(spawn_dir.y, 0., spawn_dir.x).normalize();
+								let spawn_pos = Point3::new(slot_pos.y, 3., slot_pos.x);
+								if slot_dir.dot(&target_dir) > min_dot
+								{
+									let spawn_dir =
+										Vector3::new(target_dir.y, 0.5, target_dir.x).normalize();
+									spawn_projectiles.push((spawn_pos, spawn_dir));
+									weapon.time_to_fire =
+										state.time() + weapon.stats.fire_interval as f64;
+								}
+								else if slot_dir.dot(&target_dir) > 0.
+								{
+									let cand_dir1 =
+										Rotation2::new(slot.dir + weapon.stats.arc / 2.)
+											* rot * Vector2::new(1., 0.);
+									let cand_dir2 =
+										Rotation2::new(slot.dir - weapon.stats.arc / 2.)
+											* rot * Vector2::new(1., 0.);
 
-								spawn_projectiles.push((spawn_pos, spawn_dir));
+									let cand_dir;
+									if target_dir.dot(&cand_dir1) > target_dir.dot(&cand_dir2)
+									{
+										cand_dir = cand_dir1;
+									}
+									else
+									{
+										cand_dir = cand_dir2;
+									}
+
+									let spawn_dir =
+										Vector3::new(cand_dir.y, 0.5, cand_dir.x).normalize();
+									spawn_projectiles.push((spawn_pos, spawn_dir));
+									weapon.time_to_fire =
+										state.time() + weapon.stats.fire_interval as f64;
+								}
 							}
 						}
 					}
@@ -635,7 +701,7 @@ impl Map
 		state
 			.core
 			.set_shader_uniform("time", &[state.core.get_time() as f32][..])
-			.ok(); //unwrap();
+			.ok();
 		state.prim.draw_prim(
 			&vtxs[..],
 			Option::<&Bitmap>::None,
@@ -662,6 +728,90 @@ impl Map
 				.get_mesh(&mesh.mesh)
 				.unwrap()
 				.draw(&state.prim, |s| state.get_bitmap(s));
+		}
+
+		let (dw, dh) = (state.display_width as f32, state.display_height as f32);
+		let ortho_mat = Matrix4::new_orthographic(0., dw, dh, 0., -1., 1.);
+		state
+			.core
+			.use_projection_transform(&utils::mat4_to_transform(ortho_mat));
+		state.core.use_transform(&Transform::identity());
+		state.core.set_depth_test(None);
+		state
+			.core
+			.use_shader(Some(&*state.default_shader.upgrade().unwrap()))
+			.unwrap();
+
+		let mut weapon_slots = vec![];
+		if let (Ok(pos), Ok(equipment)) = (
+			self.world.get::<&comps::Position>(self.player),
+			self.world.get::<&comps::Equipment>(self.player),
+		)
+		{
+			for slot in &equipment.slots
+			{
+				if let Some(item) = slot.item.as_ref()
+				{
+					match &item.kind
+					{
+						comps::ItemKind::Weapon(weapon) =>
+						{
+							weapon_slots.push((
+								pos.pos,
+								pos.dir,
+								weapon.time_to_fire,
+								weapon.stats.fire_interval,
+								slot.pos,
+								slot.dir,
+								weapon.stats.arc,
+							));
+						}
+					}
+				}
+			}
+		}
+		let w = 32.;
+		let total = weapon_slots.len() as f32 * w;
+		let offt = total / 2.;
+		let mouse_ground_pos = self.get_mouse_ground_pos(state);
+
+		for (i, (pos, dir, time_to_fire, fire_interval, slot_pos, slot_dir, arc)) in
+			weapon_slots.iter().enumerate()
+		{
+			let x = i as f32 * w - offt + dw / 2.;
+			let y = dh - 2. * w;
+			let f = 1. - utils::clamp((time_to_fire - state.time()) as f32 / fire_interval, 0., 1.);
+
+			let rot = Rotation2::new(*dir);
+			let rot_slot = Rotation2::new(*slot_dir);
+			let slot_pos = pos.zx() + rot * slot_pos.coords;
+			let slot_vec_dir = rot_slot * rot * Vector2::new(1., 0.);
+			let target_dir = (mouse_ground_pos.zx() - slot_pos).normalize();
+			let min_dot = (arc / 2.).cos();
+
+			if slot_vec_dir.dot(&target_dir) > min_dot
+			{
+				state.prim.draw_filled_pieslice(
+					x + w / 2.,
+					y + w / 2.,
+					w / 2.,
+					slot_dir - arc / 2. + PI / 2.,
+					*arc,
+					Color::from_rgba_f(f, f, f, f),
+				);
+			}
+			else
+			{
+				state.prim.draw_pieslice(
+					x + w / 2.,
+					y + w / 2.,
+					w / 2.,
+					slot_dir - arc / 2. + PI / 2.,
+					*arc,
+					Color::from_rgba_f(f, f, f, f),
+					3.,
+				);
+			}
 		}
 
 		Ok(())

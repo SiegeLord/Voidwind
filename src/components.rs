@@ -135,3 +135,9 @@ pub struct TimeToDie
 {
 	pub time_to_die: f64,
 }
+
+#[derive(Debug, Clone)]
+pub struct AffectedByGravity;
+
+#[derive(Debug, Clone)]
+pub struct CollidesWithWater;

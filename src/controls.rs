@@ -8,6 +8,7 @@ pub enum Action
 {
 	Move,
 	Queue,
+	Action1,
 }
 
 impl Action
@@ -18,6 +19,7 @@ impl Action
 		{
 			Action::Move => "Move",
 			Action::Queue => "Queue",
+			Action::Action1 => "Action1",
 		}
 	}
 }
@@ -469,6 +471,7 @@ impl Controls
 			Action::Queue,
 			[Some(Input::Keyboard(allegro::KeyCode::LShift)), None],
 		);
+		action_to_inputs.insert(Action::Action1, [Some(Input::MouseButton(1)), None]);
 
 		Self {
 			action_to_inputs: action_to_inputs,

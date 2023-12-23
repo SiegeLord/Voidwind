@@ -14,6 +14,8 @@ use rand::prelude::*;
 
 use std::collections::HashMap;
 
+use std::f32::consts::PI;
+
 pub struct Game
 {
 	map: Map,
@@ -166,6 +168,26 @@ fn make_target(
 	Ok(res)
 }
 
+fn make_projectile(
+	pos: Point3<f32>, dir: Vector3<f32>, world: &mut hecs::World, state: &mut game_state::GameState,
+) -> Result<hecs::Entity>
+{
+	let mesh = "data/sphere.glb";
+	game_state::cache_mesh(state, mesh)?;
+	let res = world.spawn((
+		comps::Position { pos: pos, dir: 0. },
+		comps::Velocity {
+			vel: 50. * dir,
+			dir_vel: 0.,
+		},
+		comps::Mesh { mesh: mesh.into() },
+		comps::TimeToDie {
+			time_to_die: state.time() + 1.,
+		},
+	));
+	Ok(res)
+}
+
 fn make_player(
 	pos: Point3<f32>, world: &mut hecs::World, state: &mut game_state::GameState,
 ) -> Result<hecs::Entity>
@@ -182,6 +204,31 @@ fn make_player(
 		comps::Target { waypoints: vec![] },
 		comps::Stats { speed: 10. },
 		comps::Solid { size: 2., mass: 1. },
+		comps::Equipment {
+			slots: vec![
+				comps::ItemSlot {
+					pos: Point2::new(0.0, 1.0),
+					dir: PI / 2.0,
+					item: Some(comps::Item {
+						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
+							fire_interval: 0.1,
+							arc: PI / 2.0,
+						})),
+					}),
+				},
+				comps::ItemSlot {
+					pos: Point2::new(0.0, -1.0),
+					dir: -PI / 2.0,
+					item: Some(comps::Item {
+						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
+							fire_interval: 0.1,
+							arc: PI / 2.0,
+						})),
+					}),
+				},
+			],
+			want_action_1: false,
+		},
 	));
 	Ok(res)
 }
@@ -260,14 +307,14 @@ impl Map
 		let dt = utils::DT as f32;
 
 		// Collision.
-		let center = self.player_pos.xz();
+		let center = self.player_pos.zx();
 		let mut grid = spatial_grid::SpatialGrid::new(64, 64, 16.0, 16.0);
 		for (id, (position, solid)) in self
 			.world
 			.query::<(&comps::Position, &comps::Solid)>()
 			.iter()
 		{
-			let pos = Point2::from(position.pos.xz() - center);
+			let pos = Point2::from(position.pos.zx() - center);
 			let disp = Vector2::new(solid.size, solid.size);
 			grid.push(spatial_grid::entry(
 				pos - disp,
@@ -313,7 +360,7 @@ impl Map
 				let solid1 = *self.world.get::<&comps::Solid>(id1)?;
 				let solid2 = *self.world.get::<&comps::Solid>(id2)?;
 
-				let diff = pos2.xz() - pos1.xz();
+				let diff = pos2.zx() - pos1.zx();
 				let diff_norm = utils::max(0.1, diff.norm());
 
 				if diff_norm > solid1.size + solid2.size
@@ -325,7 +372,7 @@ impl Map
 				if true
 				{
 					let diff = 0.9 * diff * (solid1.size + solid2.size - diff_norm) / diff_norm;
-					let diff = Vector3::new(diff.x, 0., diff.y);
+					let diff = Vector3::new(diff.y, 0., diff.x);
 
 					let f1 = 1. - solid1.mass / (solid2.mass + solid1.mass);
 					let f2 = 1. - solid2.mass / (solid2.mass + solid1.mass);
@@ -357,9 +404,10 @@ impl Map
 			}
 		}
 
-		// Add target
+		// Player Input
 		let want_move = state.controls.get_action_state(controls::Action::Move) > 0.5;
 		let want_queue = state.controls.get_action_state(controls::Action::Queue) > 0.5;
+		let want_action_1 = state.controls.get_action_state(controls::Action::Action1) > 0.5;
 		if want_move
 		{
 			state.controls.clear_action_state(controls::Action::Move);
@@ -382,6 +430,60 @@ impl Map
 					marker: Some(marker),
 				});
 			}
+		}
+		if want_action_1
+		{
+			state.controls.clear_action_state(controls::Action::Action1);
+			if let Ok(mut equipment) = self.world.get::<&mut comps::Equipment>(self.player)
+			{
+				equipment.want_action_1 = true;
+			}
+		}
+
+		// Equipment actions
+		let mut spawn_projectiles = vec![];
+		for (_, (pos, equipment)) in self
+			.world
+			.query::<(&comps::Position, &mut comps::Equipment)>()
+			.iter()
+		{
+			if !equipment.want_action_1
+			{
+				continue;
+			}
+			equipment.want_action_1 = false;
+			for slot in &mut equipment.slots
+			{
+				if let Some(item) = slot.item.as_mut()
+				{
+					match &mut item.kind
+					{
+						comps::ItemKind::Weapon(weapon) =>
+						{
+							if state.time() > weapon.time_to_fire
+							{
+								weapon.time_to_fire =
+									state.time() + weapon.stats.fire_interval as f64;
+								let rot = Rotation2::new(pos.dir);
+								let rot_slot = Rotation2::new(slot.dir);
+								let spawn_pos = pos.pos.zx() + rot * slot.pos.coords;
+								let spawn_pos = Point3::new(spawn_pos.y, 3., spawn_pos.x);
+
+								let spawn_dir = rot_slot * rot * Vector2::new(1., 0.);
+								let spawn_dir =
+									Vector3::new(spawn_dir.y, 0., spawn_dir.x).normalize();
+
+								spawn_projectiles.push((spawn_pos, spawn_dir));
+							}
+						}
+					}
+				}
+			}
+		}
+
+		for (spawn_pos, spawn_dir) in spawn_projectiles
+		{
+			make_projectile(spawn_pos, spawn_dir, &mut self.world, state)?;
 		}
 
 		// Update player pos.
@@ -422,19 +524,19 @@ impl Map
 				continue;
 			}
 
-			let diff = diff.xz().normalize();
-			let rot = Rotation2::new(-pos.dir);
-			let forward = rot * Vector2::new(0., -1.);
-			let left = rot * Vector2::new(1., 0.);
+			let diff = diff.zx().normalize();
+			let rot = Rotation2::new(pos.dir);
+			let forward = rot * Vector2::new(1., 0.);
+			let left = rot * Vector2::new(0., 1.);
 			if diff.dot(&left) > 0.
-			{
-				vel.dir_vel = -stats.speed / 2.;
-			}
-			else
 			{
 				vel.dir_vel = stats.speed / 2.;
 			}
-			vel.vel = stats.speed * Vector3::new(forward.x, 0., forward.y);
+			else
+			{
+				vel.dir_vel = -stats.speed / 2.;
+			}
+			vel.vel = stats.speed * Vector3::new(forward.y, 0., forward.x);
 		}
 
 		// AI
@@ -456,6 +558,15 @@ impl Map
 					pos: self.player_pos,
 					marker: None,
 				})
+			}
+		}
+
+		// Time to die
+		for (id, time_to_die) in self.world.query_mut::<&comps::TimeToDie>()
+		{
+			if state.time() > time_to_die.time_to_die
+			{
+				to_die.push(id);
 			}
 		}
 

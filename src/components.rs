@@ -1,6 +1,6 @@
 use crate::sprite;
 use allegro::*;
-use na::{Point3, Vector3};
+use na::{Point2, Point3, Vector3};
 use nalgebra as na;
 use rand::prelude::*;
 
@@ -74,4 +74,64 @@ impl Solid
 	{
 		true
 	}
+}
+
+#[derive(Clone, Debug)]
+pub struct WeaponStats
+{
+	pub fire_interval: f32,
+	pub arc: f32,
+}
+
+#[derive(Clone, Debug)]
+pub struct Weapon
+{
+	pub want_to_fire: bool,
+	pub time_to_fire: f64,
+	pub stats: WeaponStats,
+}
+
+impl Weapon
+{
+	pub fn new(stats: WeaponStats) -> Self
+	{
+		Self {
+			want_to_fire: false,
+			time_to_fire: stats.fire_interval as f64,
+			stats: stats,
+		}
+	}
+}
+
+#[derive(Clone, Debug)]
+pub enum ItemKind
+{
+	Weapon(Weapon),
+}
+
+#[derive(Clone, Debug)]
+pub struct Item
+{
+	pub kind: ItemKind,
+}
+
+#[derive(Clone, Debug)]
+pub struct ItemSlot
+{
+	pub item: Option<Item>,
+	pub pos: Point2<f32>,
+	pub dir: f32,
+}
+
+#[derive(Clone, Debug)]
+pub struct Equipment
+{
+	pub slots: Vec<ItemSlot>,
+	pub want_action_1: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct TimeToDie
+{
+	pub time_to_die: f64,
 }

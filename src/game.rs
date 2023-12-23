@@ -1,5 +1,7 @@
 use crate::error::Result;
-use crate::{astar, components as comps, controls, game_state, mesh, sprite, ui, utils};
+use crate::{
+	astar, components as comps, controls, game_state, mesh, spatial_grid, sprite, ui, utils,
+};
 use allegro::*;
 use allegro_font::*;
 use allegro_primitives::*;
@@ -178,8 +180,38 @@ fn make_player(
 		},
 		comps::Mesh { mesh: mesh.into() },
 		comps::Target { waypoints: vec![] },
+		comps::Stats { speed: 10. },
+		comps::Solid { size: 2., mass: 1. },
 	));
 	Ok(res)
+}
+
+fn make_enemy(
+	pos: Point3<f32>, world: &mut hecs::World, state: &mut game_state::GameState,
+) -> Result<hecs::Entity>
+{
+	let mesh = "data/test.glb";
+	game_state::cache_mesh(state, mesh)?;
+	let res = world.spawn((
+		comps::Position { pos: pos, dir: 0. },
+		comps::Velocity {
+			vel: Vector3::zeros(),
+			dir_vel: 0.,
+		},
+		comps::Mesh { mesh: mesh.into() },
+		comps::Target { waypoints: vec![] },
+		comps::AI,
+		comps::Stats { speed: 5. },
+		comps::Solid { size: 2., mass: 1. },
+	));
+	Ok(res)
+}
+
+#[derive(Copy, Clone, Debug)]
+struct CollisionEntry
+{
+	entity: hecs::Entity,
+	pos: Point3<f32>,
 }
 
 struct Map
@@ -199,6 +231,9 @@ impl Map
 		let mut world = hecs::World::new();
 
 		let player = make_player(Point3::new(0., 0., 0.), &mut world, state)?;
+
+		make_enemy(Point3::new(30., 0., 0.), &mut world, state)?;
+		make_enemy(Point3::new(30., 0., 10.), &mut world, state)?;
 
 		Ok(Self {
 			world: world,
@@ -224,6 +259,26 @@ impl Map
 		let mut to_die = vec![];
 		let dt = utils::DT as f32;
 
+		// Collision.
+		let center = self.player_pos.xz();
+		let mut grid = spatial_grid::SpatialGrid::new(64, 64, 16.0, 16.0);
+		for (id, (position, solid)) in self
+			.world
+			.query::<(&comps::Position, &comps::Solid)>()
+			.iter()
+		{
+			let pos = Point2::from(position.pos.xz() - center);
+			let disp = Vector2::new(solid.size, solid.size);
+			grid.push(spatial_grid::entry(
+				pos - disp,
+				pos + disp,
+				CollisionEntry {
+					entity: id,
+					pos: position.pos,
+				},
+			));
+		}
+
 		// Physics
 		for (_, (pos, vel)) in self
 			.world
@@ -232,6 +287,74 @@ impl Map
 		{
 			pos.pos += dt * vel.vel;
 			pos.dir += dt * vel.dir_vel;
+		}
+
+		// Collision resolution.
+		let mut colliding_pairs = vec![];
+		for (a, b) in grid.all_pairs(|a, b| {
+			let a_solid = self.world.get::<&comps::Solid>(a.inner.entity).unwrap();
+			let b_solid = self.world.get::<&comps::Solid>(b.inner.entity).unwrap();
+			a_solid.collides_with(&*b_solid)
+		})
+		{
+			colliding_pairs.push((a.inner, b.inner));
+		}
+
+		//let mut on_contact_effects = vec![];
+		for _pass in 0..5
+		{
+			for &(inner1, inner2) in &colliding_pairs
+			{
+				let id1 = inner1.entity;
+				let id2 = inner2.entity;
+				let pos1 = self.world.get::<&comps::Position>(id1)?.pos;
+				let pos2 = self.world.get::<&comps::Position>(id2)?.pos;
+
+				let solid1 = *self.world.get::<&comps::Solid>(id1)?;
+				let solid2 = *self.world.get::<&comps::Solid>(id2)?;
+
+				let diff = pos2.xz() - pos1.xz();
+				let diff_norm = utils::max(0.1, diff.norm());
+
+				if diff_norm > solid1.size + solid2.size
+				{
+					continue;
+				}
+
+				//if solid1.collision_class.interacts() && solid2.collision_class.interacts()
+				if true
+				{
+					let diff = 0.9 * diff * (solid1.size + solid2.size - diff_norm) / diff_norm;
+					let diff = Vector3::new(diff.x, 0., diff.y);
+
+					let f1 = 1. - solid1.mass / (solid2.mass + solid1.mass);
+					let f2 = 1. - solid2.mass / (solid2.mass + solid1.mass);
+					if f32::is_finite(f1)
+					{
+						self.world.get::<&mut comps::Position>(id1)?.pos -= diff * f1;
+					}
+					if f32::is_finite(f2)
+					{
+						self.world.get::<&mut comps::Position>(id2)?.pos += diff * f2;
+					}
+				}
+
+				// if pass == 0
+				// {
+				// 	for (id, other_id) in [(id1, Some(id2)), (id2, Some(id1))]
+				// 	{
+				// 		if let Ok(on_contact_effect) =
+				// 			self.world.get::<&components::OnContactEffect>(id)
+				// 		{
+				// 			on_contact_effects.push((
+				// 				id,
+				// 				other_id,
+				// 				on_contact_effect.effects.clone(),
+				// 			));
+				// 		}
+				// 	}
+				// }
+			}
 		}
 
 		// Add target
@@ -252,15 +375,11 @@ impl Map
 			{
 				if !want_queue
 				{
-					for waypoint in &target.waypoints
-					{
-						to_die.push(waypoint.marker);
-					}
-					target.waypoints.clear();
+					target.clear(|m| to_die.push(m));
 				}
 				target.waypoints.push(comps::Waypoint {
 					pos: ground_pos,
-					marker: marker,
+					marker: Some(marker),
 				});
 			}
 		}
@@ -272,9 +391,14 @@ impl Map
 		}
 
 		// Target movement.
-		for (_, (target, pos, vel)) in self
+		for (_, (target, pos, vel, stats)) in self
 			.world
-			.query::<(&mut comps::Target, &comps::Position, &mut comps::Velocity)>()
+			.query::<(
+				&mut comps::Target,
+				&comps::Position,
+				&mut comps::Velocity,
+				&comps::Stats,
+			)>()
 			.iter()
 		{
 			if target.waypoints.is_empty()
@@ -290,7 +414,10 @@ impl Map
 					vel.vel = Vector3::zeros();
 					vel.dir_vel = 0.;
 				}
-				to_die.push(waypoint.marker);
+				if let Some(marker) = waypoint.marker
+				{
+					to_die.push(marker);
+				}
 				target.waypoints.remove(0);
 				continue;
 			}
@@ -301,13 +428,35 @@ impl Map
 			let left = rot * Vector2::new(1., 0.);
 			if diff.dot(&left) > 0.
 			{
-				vel.dir_vel = -4.0;
+				vel.dir_vel = -stats.speed / 2.;
 			}
 			else
 			{
-				vel.dir_vel = 4.0;
+				vel.dir_vel = stats.speed / 2.;
 			}
-			vel.vel = 10. * Vector3::new(forward.x, 0., forward.y);
+			vel.vel = stats.speed * Vector3::new(forward.x, 0., forward.y);
+		}
+
+		// AI
+		let player_alive = self.world.contains(self.player);
+		if player_alive
+		{
+			for (_, (pos, target, _)) in self
+				.world
+				.query::<(&comps::Position, &mut comps::Target, &comps::AI)>()
+				.iter()
+			{
+				let diff = pos.pos - self.player_pos;
+				if diff.magnitude() > 20.
+				{
+					continue;
+				}
+				target.clear(|m| to_die.push(m));
+				target.waypoints.push(comps::Waypoint {
+					pos: self.player_pos,
+					marker: None,
+				})
+			}
 		}
 
 		// Remove dead entities

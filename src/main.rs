@@ -12,6 +12,7 @@ mod game_state;
 mod menu;
 mod mesh;
 mod sfx;
+mod spatial_grid;
 mod sprite;
 mod ui;
 mod utils;

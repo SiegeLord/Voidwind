@@ -194,8 +194,8 @@ impl GameState
 	{
 		self.basic_shader =
 			make_shader(display, "data/basic_vertex.glsl", "data/basic_pixel.glsl")?;
-        self.water_shader =
-            make_shader(display, "data/water_vertex.glsl", "data/water_pixel.glsl")?;
+		self.water_shader =
+			make_shader(display, "data/water_vertex.glsl", "data/water_pixel.glsl")?;
 		Ok(())
 	}
 

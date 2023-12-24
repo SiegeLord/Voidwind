@@ -564,6 +564,7 @@ impl Map
 		{
 			state.controls.clear_action_state(controls::Action::Move);
 			let marker = make_target(mouse_ground_pos, &mut self.world, state)?;
+			let despawn;
 			if let Ok(mut target) = self.world.get::<&mut comps::Target>(self.player)
 			{
 				if !want_queue
@@ -574,6 +575,15 @@ impl Map
 					pos: mouse_ground_pos,
 					marker: Some(marker),
 				});
+				despawn = false;
+			}
+			else
+			{
+				despawn = true;
+			}
+			if despawn
+			{
+				self.world.despawn(marker)?;
 			}
 		}
 		if want_action_1
@@ -825,6 +835,15 @@ impl Map
 						}
 					}
 				}
+			}
+		}
+
+		// Hull death
+		for (id, ship_state) in self.world.query_mut::<&comps::ShipState>()
+		{
+			if ship_state.hull < 0.
+			{
+				to_die.push(id);
 			}
 		}
 

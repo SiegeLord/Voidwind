@@ -73,18 +73,33 @@ pub struct Stats
 }
 
 #[derive(Copy, Clone, Debug)]
+pub enum CollideKind
+{
+	Big,
+	Small,
+}
+
+impl CollideKind
+{
+	pub fn collides_with(&self, other: &CollideKind) -> bool
+	{
+		match (self, other)
+		{
+			(CollideKind::Big, CollideKind::Big) => true,
+			(CollideKind::Big, CollideKind::Small) => true,
+			(CollideKind::Small, CollideKind::Big) => true,
+			(CollideKind::Small, CollideKind::Small) => false,
+		}
+	}
+}
+
+#[derive(Copy, Clone, Debug)]
 pub struct Solid
 {
 	pub size: f32,
 	pub mass: f32,
-}
-
-impl Solid
-{
-	pub fn collides_with(&self, _other: &Solid) -> bool
-	{
-		true
-	}
+	pub kind: CollideKind,
+	pub parent: Option<hecs::Entity>,
 }
 
 #[derive(Clone, Debug)]
@@ -143,14 +158,50 @@ pub struct Equipment
 	pub allow_out_of_arc_shots: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct TimeToDie
 {
 	pub time_to_die: f64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct AffectedByGravity;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct CollidesWithWater;
+
+#[derive(Copy, Clone, Debug)]
+pub struct Damage
+{
+	pub damage: f32,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum ContactEffect
+{
+	Die,
+	Hurt
+	{
+		damage: Damage,
+	},
+}
+
+#[derive(Clone, Debug)]
+pub struct OnContactEffect
+{
+	pub effects: Vec<ContactEffect>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ShipState
+{
+	pub hull: f32,
+}
+
+impl ShipState
+{
+	pub fn damage(&mut self, damage: &Damage)
+	{
+		self.hull -= damage.damage;
+	}
+}

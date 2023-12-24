@@ -155,6 +155,18 @@ impl Game
 	}
 }
 
+fn draw_ship_state(ship_state: &comps::ShipState, x: f32, y: f32, state: &game_state::GameState)
+{
+	state.core.draw_text(
+		&state.ui_font,
+		Color::from_rgb_f(1., 1., 1.),
+		x,
+		y,
+		FontAlign::Left,
+		&format!("Hull: {}", ship_state.hull as i32),
+	);
+}
+
 fn make_target(
 	pos: Point3<f32>, world: &mut hecs::World, state: &mut game_state::GameState,
 ) -> Result<hecs::Entity>
@@ -169,7 +181,8 @@ fn make_target(
 }
 
 fn make_projectile(
-	pos: Point3<f32>, dir: Vector3<f32>, world: &mut hecs::World, state: &mut game_state::GameState,
+	pos: Point3<f32>, dir: Vector3<f32>, parent: hecs::Entity, world: &mut hecs::World,
+	state: &mut game_state::GameState,
 ) -> Result<hecs::Entity>
 {
 	let mesh = "data/sphere.glb";
@@ -180,12 +193,26 @@ fn make_projectile(
 			vel: 50. * dir,
 			dir_vel: 0.,
 		},
+		comps::Solid {
+			size: 0.5,
+			mass: 0.,
+			kind: comps::CollideKind::Small,
+			parent: Some(parent),
+		},
 		comps::Mesh { mesh: mesh.into() },
 		comps::TimeToDie {
 			time_to_die: state.time() + 1.,
 		},
 		comps::AffectedByGravity,
 		comps::CollidesWithWater,
+		comps::OnContactEffect {
+			effects: vec![
+				comps::ContactEffect::Die,
+				comps::ContactEffect::Hurt {
+					damage: comps::Damage { damage: 10. },
+				},
+			],
+		},
 	));
 	Ok(res)
 }
@@ -205,7 +232,12 @@ fn make_player(
 		comps::Mesh { mesh: mesh.into() },
 		comps::Target { waypoints: vec![] },
 		comps::Stats { speed: 10. },
-		comps::Solid { size: 2., mass: 1. },
+		comps::Solid {
+			size: 2.,
+			mass: 1.,
+			kind: comps::CollideKind::Big,
+			parent: None,
+		},
 		comps::Equipment {
 			slots: vec![
 				comps::ItemSlot {
@@ -245,6 +277,7 @@ fn make_player(
 			target_pos: Point3::new(0., 0., 0.),
 			allow_out_of_arc_shots: true,
 		},
+		comps::ShipState { hull: 100. },
 	));
 	Ok(res)
 }
@@ -267,7 +300,12 @@ fn make_enemy(
 			state: comps::AIState::Idle,
 		},
 		comps::Stats { speed: 5. },
-		comps::Solid { size: 2., mass: 1. },
+		comps::Solid {
+			size: 2.,
+			mass: 1.,
+			kind: comps::CollideKind::Big,
+			parent: None,
+		},
 		comps::Equipment {
 			slots: vec![
 				comps::ItemSlot {
@@ -307,6 +345,7 @@ fn make_enemy(
 			target_pos: Point3::new(0., 0., 0.),
 			allow_out_of_arc_shots: false,
 		},
+		comps::ShipState { hull: 100. },
 	));
 	Ok(res)
 }
@@ -325,6 +364,7 @@ struct Map
 	player: hecs::Entity,
 	player_pos: Point3<f32>,
 	project: Perspective3<f32>,
+	mouse_entity: Option<hecs::Entity>,
 }
 
 impl Map
@@ -345,6 +385,7 @@ impl Map
 			player_pos: Point3::new(0., 0., 0.),
 			player: player,
 			project: utils::projection_transform(state.display_width, state.display_height),
+			mouse_entity: None,
 		})
 	}
 
@@ -425,16 +466,20 @@ impl Map
 		// Collision resolution.
 		let mut colliding_pairs = vec![];
 		for (a, b) in grid.all_pairs(|a, b| {
-			let a_solid = self.world.get::<&comps::Solid>(a.inner.entity).unwrap();
-			let b_solid = self.world.get::<&comps::Solid>(b.inner.entity).unwrap();
-			a_solid.collides_with(&*b_solid)
+			let a = a.inner.entity;
+			let b = b.inner.entity;
+			let a_solid = self.world.get::<&comps::Solid>(a).unwrap();
+			let b_solid = self.world.get::<&comps::Solid>(b).unwrap();
+			a_solid.kind.collides_with(&b_solid.kind)
+				&& a_solid.parent != Some(b)
+				&& b_solid.parent != Some(a)
 		})
 		{
 			colliding_pairs.push((a.inner, b.inner));
 		}
 
-		//let mut on_contact_effects = vec![];
-		for _pass in 0..5
+		let mut on_contact_effects = vec![];
+		for pass in 0..5
 		{
 			for &(inner1, inner2) in &colliding_pairs
 			{
@@ -472,21 +517,41 @@ impl Map
 					}
 				}
 
-				// if pass == 0
-				// {
-				// 	for (id, other_id) in [(id1, Some(id2)), (id2, Some(id1))]
-				// 	{
-				// 		if let Ok(on_contact_effect) =
-				// 			self.world.get::<&components::OnContactEffect>(id)
-				// 		{
-				// 			on_contact_effects.push((
-				// 				id,
-				// 				other_id,
-				// 				on_contact_effect.effects.clone(),
-				// 			));
-				// 		}
-				// 	}
-				// }
+				if pass == 0
+				{
+					for (id, other_id) in [(id1, Some(id2)), (id2, Some(id1))]
+					{
+						if let Ok(on_contact_effect) = self.world.get::<&comps::OnContactEffect>(id)
+						{
+							on_contact_effects.push((
+								id,
+								other_id,
+								on_contact_effect.effects.clone(),
+							));
+						}
+					}
+				}
+			}
+		}
+
+		// On contact effects.
+		for (id, other_id, effects) in on_contact_effects
+		{
+			for effect in effects
+			{
+				match (effect, other_id)
+				{
+					(comps::ContactEffect::Die, _) => to_die.push(id),
+					(comps::ContactEffect::Hurt { damage }, Some(other_id)) =>
+					{
+						if let Ok(mut ship_state) =
+							self.world.get::<&mut comps::ShipState>(other_id)
+						{
+							ship_state.damage(&damage);
+						}
+					}
+					_ => (),
+				}
 			}
 		}
 
@@ -520,9 +585,31 @@ impl Map
 			}
 		}
 
+		// Mouse hover.
+		let mouse_entries = grid.query_rect(
+			mouse_ground_pos.zx() - Vector2::new(0.1, 0.1) - center.coords,
+			mouse_ground_pos.zx() + Vector2::new(0.1, 0.1) - center.coords,
+			|_| true,
+		);
+
+		if let Some(entry) = mouse_entries.first()
+		{
+			if let (Ok(pos), Ok(solid), Ok(_)) = (
+				self.world.get::<&comps::Position>(entry.inner.entity),
+				self.world.get::<&comps::Solid>(entry.inner.entity),
+				self.world.get::<&comps::ShipState>(entry.inner.entity),
+			)
+			{
+				if (pos.pos - mouse_ground_pos).magnitude() < solid.size
+				{
+					self.mouse_entity = Some(entry.inner.entity);
+				}
+			}
+		}
+
 		// Equipment actions
 		let mut spawn_projectiles = vec![];
-		for (_, (pos, equipment)) in self
+		for (id, (pos, equipment)) in self
 			.world
 			.query::<(&comps::Position, &mut comps::Equipment)>()
 			.iter()
@@ -584,7 +671,7 @@ impl Map
 									let spawn_dir = rot * spawn_dir;
 									let spawn_dir =
 										Vector3::new(spawn_dir.y, 0.5, spawn_dir.x).normalize();
-									spawn_projectiles.push((spawn_pos, spawn_dir));
+									spawn_projectiles.push((spawn_pos, spawn_dir, id));
 									weapon.time_to_fire =
 										state.time() + weapon.stats.fire_interval as f64;
 								}
@@ -595,9 +682,9 @@ impl Map
 			}
 		}
 
-		for (spawn_pos, spawn_dir) in spawn_projectiles
+		for (spawn_pos, spawn_dir, parent) in spawn_projectiles
 		{
-			make_projectile(spawn_pos, spawn_dir, &mut self.world, state)?;
+			make_projectile(spawn_pos, spawn_dir, parent, &mut self.world, state)?;
 		}
 
 		// Update player pos.
@@ -925,6 +1012,22 @@ impl Map
 					Color::from_rgba_f(f, f, f, f),
 					3.,
 				);
+			}
+		}
+
+		if let Ok(ship_state) = self.world.get::<&comps::ShipState>(self.player)
+		{
+			draw_ship_state(&*ship_state, 16., dh - 32., state);
+		}
+
+		if let Some(ship_state) = self
+			.mouse_entity
+			.as_ref()
+			.and_then(|e| self.world.get::<&comps::ShipState>(*e).ok())
+		{
+			if self.mouse_entity != Some(self.player)
+			{
+				draw_ship_state(&*ship_state, dw - 100., dh - 32., state);
 			}
 		}
 

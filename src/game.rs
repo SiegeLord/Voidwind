@@ -214,7 +214,7 @@ fn make_player(
 
 					item: Some(comps::Item {
 						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
-							fire_interval: 0.5,
+							fire_interval: 1.,
 							arc: PI / 2.0,
 						})),
 					}),
@@ -225,7 +225,7 @@ fn make_player(
 
 					item: Some(comps::Item {
 						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
-							fire_interval: 0.5,
+							fire_interval: 1.,
 							arc: PI / 2.0,
 						})),
 					}),
@@ -235,13 +235,15 @@ fn make_player(
 					dir: -PI / 2.0,
 					item: Some(comps::Item {
 						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
-							fire_interval: 0.1,
+							fire_interval: 1.,
 							arc: PI / 2.0,
 						})),
 					}),
 				},
 			],
 			want_action_1: false,
+			target_pos: Point3::new(0., 0., 0.),
+			allow_out_of_arc_shots: true,
 		},
 	));
 	Ok(res)
@@ -261,9 +263,50 @@ fn make_enemy(
 		},
 		comps::Mesh { mesh: mesh.into() },
 		comps::Target { waypoints: vec![] },
-		comps::AI,
+		comps::AI {
+			state: comps::AIState::Idle,
+		},
 		comps::Stats { speed: 5. },
 		comps::Solid { size: 2., mass: 1. },
+		comps::Equipment {
+			slots: vec![
+				comps::ItemSlot {
+					pos: Point2::new(0.5, 1.0),
+					dir: PI / 2.0,
+
+					item: Some(comps::Item {
+						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
+							fire_interval: 1.,
+							arc: PI / 2.0,
+						})),
+					}),
+				},
+				comps::ItemSlot {
+					pos: Point2::new(-0.5, 1.0),
+					dir: PI / 2.0,
+
+					item: Some(comps::Item {
+						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
+							fire_interval: 1.,
+							arc: PI / 2.0,
+						})),
+					}),
+				},
+				comps::ItemSlot {
+					pos: Point2::new(0.0, -1.0),
+					dir: -PI / 2.0,
+					item: Some(comps::Item {
+						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
+							fire_interval: 1.,
+							arc: PI / 2.0,
+						})),
+					}),
+				},
+			],
+			want_action_1: false,
+			target_pos: Point3::new(0., 0., 0.),
+			allow_out_of_arc_shots: false,
+		},
 	));
 	Ok(res)
 }
@@ -470,10 +513,10 @@ impl Map
 		}
 		if want_action_1
 		{
-			state.controls.clear_action_state(controls::Action::Action1);
 			if let Ok(mut equipment) = self.world.get::<&mut comps::Equipment>(self.player)
 			{
 				equipment.want_action_1 = true;
+				equipment.target_pos = mouse_ground_pos;
 			}
 		}
 
@@ -503,19 +546,17 @@ impl Map
 								let rot_slot = Rotation2::new(slot.dir);
 								let slot_pos = pos.pos.zx() + rot * slot.pos.coords;
 								let slot_dir = rot_slot * rot * Vector2::new(1., 0.);
-								let target_dir = (mouse_ground_pos.zx() - slot_pos).normalize();
+								let target_dir = (equipment.target_pos.zx() - slot_pos).normalize();
 								let min_dot = (weapon.stats.arc / 2.).cos();
 
 								let spawn_pos = Point3::new(slot_pos.y, 3., slot_pos.x);
+								let mut spawn_dir = None;
 								if slot_dir.dot(&target_dir) > min_dot
 								{
-									let spawn_dir =
-										Vector3::new(target_dir.y, 0.5, target_dir.x).normalize();
-									spawn_projectiles.push((spawn_pos, spawn_dir));
-									weapon.time_to_fire =
-										state.time() + weapon.stats.fire_interval as f64;
+									spawn_dir = Some(target_dir);
 								}
 								else if slot_dir.dot(&target_dir) > 0.
+									&& equipment.allow_out_of_arc_shots
 								{
 									let cand_dir1 =
 										Rotation2::new(slot.dir + weapon.stats.arc / 2.)
@@ -534,8 +575,15 @@ impl Map
 										cand_dir = cand_dir2;
 									}
 
+									spawn_dir = Some(cand_dir);
+								}
+								if let Some(spawn_dir) = spawn_dir
+								{
+									let rot =
+										Rotation2::new(self.rng.gen_range(-PI / 12.0..=PI / 12.0));
+									let spawn_dir = rot * spawn_dir;
 									let spawn_dir =
-										Vector3::new(cand_dir.y, 0.5, cand_dir.x).normalize();
+										Vector3::new(spawn_dir.y, 0.5, spawn_dir.x).normalize();
 									spawn_projectiles.push((spawn_pos, spawn_dir));
 									weapon.time_to_fire =
 										state.time() + weapon.stats.fire_interval as f64;
@@ -571,6 +619,8 @@ impl Map
 		{
 			if target.waypoints.is_empty()
 			{
+				vel.vel = Vector3::zeros();
+				vel.dir_vel = 0.;
 				continue;
 			}
 			let waypoint = target.waypoints.first().unwrap();
@@ -596,34 +646,98 @@ impl Map
 			let left = rot * Vector2::new(0., 1.);
 			if diff.dot(&left) > 0.
 			{
-				vel.dir_vel = stats.speed / 2.;
+				vel.dir_vel = stats.speed / 5.;
 			}
 			else
 			{
-				vel.dir_vel = -stats.speed / 2.;
+				vel.dir_vel = -stats.speed / 5.;
 			}
 			vel.vel = stats.speed * Vector3::new(forward.y, 0., forward.x);
 		}
 
 		// AI
-		let player_alive = self.world.contains(self.player);
-		if player_alive
+		for (_id, (pos, target, ai, equipment)) in self
+			.world
+			.query::<(
+				&comps::Position,
+				&mut comps::Target,
+				&mut comps::AI,
+				&mut comps::Equipment,
+			)>()
+			.iter()
 		{
-			for (_, (pos, target, _)) in self
-				.world
-				.query::<(&comps::Position, &mut comps::Target, &comps::AI)>()
-				.iter()
+			match ai.state
 			{
-				let diff = pos.pos - self.player_pos;
-				if diff.magnitude() > 20.
+				comps::AIState::Idle =>
 				{
-					continue;
+					let diff = pos.pos - self.player_pos;
+					if diff.magnitude() < 30.
+					{
+						ai.state = comps::AIState::Pursuing(self.player);
+					}
 				}
-				target.clear(|m| to_die.push(m));
-				target.waypoints.push(comps::Waypoint {
-					pos: self.player_pos,
-					marker: None,
-				})
+				comps::AIState::Pursuing(target_entity) =>
+				{
+					if !self.world.contains(target_entity)
+					{
+						ai.state = comps::AIState::Idle;
+					}
+					else
+					{
+						let target_pos = self.world.get::<&comps::Position>(target_entity).unwrap();
+						let diff = pos.pos - target_pos.pos;
+						if diff.magnitude() < 20.
+						{
+							target.clear(|m| to_die.push(m));
+							ai.state = comps::AIState::Attacking(target_entity);
+						}
+						else if diff.magnitude() > 30.
+						{
+							ai.state = comps::AIState::Idle;
+						}
+						else
+						{
+							target.clear(|m| to_die.push(m));
+							target.waypoints.push(comps::Waypoint {
+								pos: target_pos.pos,
+								marker: None,
+							})
+						}
+					}
+				}
+				comps::AIState::Attacking(target_entity) =>
+				{
+					if !self.world.contains(target_entity)
+					{
+						ai.state = comps::AIState::Idle;
+						equipment.want_action_1 = false;
+					}
+					else
+					{
+						let target_pos = self.world.get::<&comps::Position>(target_entity).unwrap();
+						let diff = target_pos.pos - pos.pos;
+						if diff.magnitude() > 20.
+						{
+							ai.state = comps::AIState::Pursuing(target_entity);
+							equipment.want_action_1 = false;
+						}
+						else
+						{
+							if target.waypoints.is_empty()
+							{
+								let theta = [-PI / 3., PI / 3.].choose(&mut self.rng).unwrap();
+								let rot = Rotation2::new(*theta);
+								let new_disp = rot * diff.zx() * 2.;
+								target.waypoints.push(comps::Waypoint {
+									pos: pos.pos + Vector3::new(new_disp.y, 0., new_disp.x),
+									marker: None,
+								});
+							}
+							equipment.want_action_1 = true;
+							equipment.target_pos = target_pos.pos;
+						}
+					}
+				}
 			}
 		}
 

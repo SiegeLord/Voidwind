@@ -53,7 +53,18 @@ pub struct Mesh
 }
 
 #[derive(Clone, Debug)]
-pub struct AI;
+pub enum AIState
+{
+	Idle,
+	Pursuing(hecs::Entity),
+	Attacking(hecs::Entity),
+}
+
+#[derive(Clone, Debug)]
+pub struct AI
+{
+	pub state: AIState,
+}
 
 #[derive(Clone, Debug)]
 pub struct Stats
@@ -128,6 +139,8 @@ pub struct Equipment
 {
 	pub slots: Vec<ItemSlot>,
 	pub want_action_1: bool,
+	pub target_pos: Point3<f32>,
+	pub allow_out_of_arc_shots: bool,
 }
 
 #[derive(Debug, Clone)]

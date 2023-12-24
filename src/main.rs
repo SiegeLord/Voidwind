@@ -59,13 +59,10 @@ fn real_main() -> Result<()>
 	let mut display = Display::new(&state.core, state.options.width, state.options.height)
 		.map_err(|_| "Couldn't create display".to_string())?;
 
-	state.load_shaders(&mut display)?;
+	state.post_init(&mut display)?;
 
 	gl_loader::init_gl();
 	gl::load_with(|symbol| gl_loader::get_proc_address(symbol) as *const _);
-
-	state.display_width = display.get_width() as f32;
-	state.display_height = display.get_height() as f32;
 
 	let timer = Timer::new(&state.core, utils::DT as f64)
 		.map_err(|_| "Couldn't create timer".to_string())?;

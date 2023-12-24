@@ -9,7 +9,7 @@ use nalgebra::Point2;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::{fmt, path, sync};
+use std::{fmt, path, rc, sync};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Options
@@ -103,36 +103,6 @@ fn make_default_shader(core: &Core, disp: &mut Display) -> Result<sync::Weak<Sha
 	Ok(shader)
 }
 
-pub struct GameState
-{
-	pub core: Core,
-	pub prim: PrimitivesAddon,
-	pub image: ImageAddon,
-	pub font: FontAddon,
-	pub ttf: TtfAddon,
-	pub tick: i64,
-	pub paused: bool,
-
-	pub sfx: sfx::Sfx,
-	pub atlas: atlas::Atlas,
-	pub ui_font: Font,
-	//pub number_font: Font,
-	pub options: Options,
-	pub draw_scale: f32,
-	pub display_width: f32,
-	pub display_height: f32,
-	bitmaps: HashMap<String, Bitmap>,
-	sprites: HashMap<String, sprite::Sprite>,
-	meshes: HashMap<String, mesh::MultiMesh>,
-	pub controls: controls::ControlsHandler,
-	pub track_mouse: bool,
-	pub mouse_pos: Point2<i32>,
-
-	pub basic_shader: sync::Weak<Shader>,
-	pub water_shader: sync::Weak<Shader>,
-	pub default_shader: sync::Weak<Shader>,
-}
-
 pub fn load_options(core: &Core) -> Result<Options>
 {
 	let mut path_buf = path::PathBuf::new();
@@ -167,6 +137,40 @@ pub fn save_options(core: &Core, options: &Options) -> Result<()>
 	std::fs::create_dir_all(&path_buf).map_err(|_| "Couldn't create directory".to_string())?;
 	path_buf.push("options.cfg");
 	utils::save_config(path_buf.to_str().unwrap(), &options)
+}
+
+pub struct GameState
+{
+	pub core: Core,
+	pub prim: PrimitivesAddon,
+	pub image: ImageAddon,
+	pub font: FontAddon,
+	pub ttf: TtfAddon,
+	pub tick: i64,
+	pub paused: bool,
+
+	pub sfx: sfx::Sfx,
+	pub atlas: atlas::Atlas,
+	pub ui_font: Font,
+	//pub number_font: Font,
+	pub options: Options,
+	pub draw_scale: f32,
+	pub display_width: f32,
+	pub display_height: f32,
+	bitmaps: HashMap<String, Bitmap>,
+	sprites: HashMap<String, sprite::Sprite>,
+	meshes: HashMap<String, mesh::MultiMesh>,
+	pub controls: controls::ControlsHandler,
+	pub track_mouse: bool,
+	pub mouse_pos: Point2<i32>,
+
+	pub basic_shader: sync::Weak<Shader>,
+	pub water_shader: sync::Weak<Shader>,
+	pub default_shader: sync::Weak<Shader>,
+
+	pub left_half_screen: rc::Weak<SubBitmap>,
+	pub right_half_screen: rc::Weak<SubBitmap>,
+	pub full_screen: rc::Weak<SubBitmap>,
 }
 
 impl GameState
@@ -217,16 +221,39 @@ impl GameState
 			basic_shader: sync::Weak::new(),
 			water_shader: sync::Weak::new(),
 			default_shader: sync::Weak::new(),
+			left_half_screen: rc::Weak::new(),
+			right_half_screen: rc::Weak::new(),
+			full_screen: rc::Weak::new(),
 		})
 	}
 
-	pub fn load_shaders(&mut self, display: &mut Display) -> Result<()>
+	pub fn post_init(&mut self, display: &mut Display) -> Result<()>
 	{
+		self.display_width = display.get_width() as f32;
+		self.display_height = display.get_height() as f32;
 		self.basic_shader =
 			make_shader(display, "data/basic_vertex.glsl", "data/basic_pixel.glsl")?;
 		self.water_shader =
 			make_shader(display, "data/water_vertex.glsl", "data/water_pixel.glsl")?;
 		self.default_shader = make_default_shader(&self.core, display)?;
+
+		self.left_half_screen = display
+			.get_backbuffer()
+			.create_sub_bitmap(0, 0, display.get_width() / 2, display.get_height())
+			.map_err(|_| "Couldn't create subbitmap".to_string())?;
+		self.right_half_screen = display
+			.get_backbuffer()
+			.create_sub_bitmap(
+				display.get_width() / 2,
+				0,
+				display.get_width() / 2,
+				display.get_height(),
+			)
+			.map_err(|_| "Couldn't create subbitmap".to_string())?;
+		self.full_screen = display
+			.get_backbuffer()
+			.create_sub_bitmap(0, 0, display.get_width(), display.get_height())
+			.map_err(|_| "Couldn't create subbitmap".to_string())?;
 		Ok(())
 	}
 

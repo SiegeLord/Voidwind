@@ -19,6 +19,7 @@ use std::f32::consts::PI;
 pub struct Game
 {
 	map: Map,
+	status_screen: Option<StatusScreen>,
 	subscreens: Vec<ui::SubScreen>,
 }
 
@@ -29,6 +30,7 @@ impl Game
 		Ok(Self {
 			map: Map::new(state)?,
 			subscreens: vec![],
+			status_screen: None,
 		})
 	}
 
@@ -38,6 +40,10 @@ impl Game
 	{
 		if self.subscreens.is_empty()
 		{
+			if let Some(status_screen) = self.status_screen.as_mut()
+			{
+				status_screen.logic(&mut self.map, state);
+			}
 			self.map.logic(state)
 		}
 		else
@@ -64,16 +70,35 @@ impl Game
 		}
 		if self.subscreens.is_empty()
 		{
-			let in_game_menu;
+			let mut in_game_menu = false;
 			match *event
 			{
-				Event::KeyDown {
-					keycode: KeyCode::Escape,
-					..
-				} =>
+				Event::KeyDown { keycode, .. } => match keycode
 				{
-					in_game_menu = true;
-				}
+					KeyCode::Escape =>
+					{
+						if self.status_screen.is_some()
+						{
+							self.status_screen = None;
+						}
+						else
+						{
+							in_game_menu = true;
+						}
+					}
+					KeyCode::S =>
+					{
+						if self.status_screen.is_some()
+						{
+							self.status_screen = None;
+						}
+						else
+						{
+							self.status_screen = Some(StatusScreen::new(state));
+						}
+					}
+					_ => (),
+				},
 				_ =>
 				{
 					let res = self.map.input(event, state);
@@ -132,26 +157,179 @@ impl Game
 
 	pub fn draw(&mut self, state: &game_state::GameState) -> Result<()>
 	{
-		if let Some(subscreen) = self.subscreens.last_mut()
+		state.core.clear_to_color(Color::from_rgb_f(0.5, 0.5, 1.));
+		if self.status_screen.is_some()
 		{
-			state.core.clear_to_color(Color::from_rgb_f(0.0, 0.0, 0.0));
-			subscreen.draw(state);
-
-		// // This is dumb.
-		// let sprite = state.get_sprite("data/cursor.cfg").unwrap();
-		// sprite.draw(
-		// 	to_f32(state.mouse_pos),
-		// 	0,
-		// 	Color::from_rgb_f(1., 1., 1.),
-		// 	state,
-		// );
+			state
+				.core
+				.set_target_bitmap(Some(&*state.left_half_screen.upgrade().unwrap()));
+			self.map.buffer_width = state.display_width / 2.;
 		}
 		else
 		{
-			state.core.clear_to_color(Color::from_rgb_f(0.5, 0.5, 1.));
-			self.map.draw(state)?;
+			state
+				.core
+				.set_target_bitmap(Some(&*state.full_screen.upgrade().unwrap()));
+			self.map.buffer_width = state.display_width;
+		}
+		self.map.draw(state, self.subscreens.is_empty())?;
+		if let Some(status_screen) = self.status_screen.as_ref()
+		{
+			state
+				.core
+				.set_target_bitmap(Some(&*state.right_half_screen.upgrade().unwrap()));
+			status_screen.draw(&self.map, state);
+		}
+		state
+			.core
+			.set_target_bitmap(Some(&*state.full_screen.upgrade().unwrap()));
+		if let Some(subscreen) = self.subscreens.last_mut()
+		{
+			state.prim.draw_filled_rectangle(
+				0.,
+				0.,
+				state.display_width,
+				state.display_height,
+				Color::from_rgba_f(0., 0., 0., 0.5),
+			);
+			subscreen.draw(state);
+
+			// // This is dumb.
+			// let sprite = state.get_sprite("data/cursor.cfg").unwrap();
+			// sprite.draw(
+			// 	to_f32(state.mouse_pos),
+			// 	0,
+			// 	Color::from_rgb_f(1., 1., 1.),
+			// 	state,
+			// );
 		}
 		Ok(())
+	}
+}
+
+struct StatusScreen
+{
+	buffer_width: f32,
+	buffer_height: f32,
+	hover_slot: Option<usize>,
+}
+
+impl StatusScreen
+{
+	fn new(state: &mut game_state::GameState) -> Self
+	{
+		Self {
+			buffer_width: state.display_width / 2.,
+			buffer_height: state.display_height,
+			hover_slot: None,
+		}
+	}
+
+	fn get_slot_pos(&self, real_pos: Point2<f32>) -> Point2<f32>
+	{
+		let (bw, bh) = (self.buffer_width, self.buffer_height);
+		Point2::new(-real_pos.y, -real_pos.x) * 64. + Vector2::new(bw / 2., bh / 2.)
+	}
+
+	fn logic(&mut self, map: &Map, state: &game_state::GameState)
+	{
+		let bw = self.buffer_width;
+		let mouse_pos =
+			Point2::new(state.mouse_pos.x as f32, state.mouse_pos.y as f32) - Vector2::new(bw, 0.);
+		self.hover_slot = None;
+		if let Ok(equipment) = map.world.get::<&mut comps::Equipment>(map.player)
+		{
+			for (i, slot) in equipment.slots.iter().enumerate()
+			{
+				let pos = self.get_slot_pos(slot.pos);
+				let w = 32.;
+				if mouse_pos.x > pos.x - w / 2.
+					&& mouse_pos.x < pos.x + w / 2.
+					&& mouse_pos.y > pos.y - w / 2.
+					&& mouse_pos.y < pos.y + w / 2.
+				{
+					self.hover_slot = Some(i);
+				}
+			}
+		}
+	}
+
+	fn draw(&self, map: &Map, state: &game_state::GameState)
+	{
+		state.core.clear_to_color(Color::from_rgb_f(0.1, 0.1, 0.2));
+
+		if let Ok(mut equipment) = map.world.get::<&mut comps::Equipment>(map.player)
+		{
+			let mut hover_item = None;
+			for (i, slot) in equipment.slots.iter_mut().enumerate()
+			{
+				let pos = self.get_slot_pos(slot.pos);
+				if let Some(item) = &slot.item
+				{
+					if Some(i) == self.hover_slot
+					{
+						hover_item = Some((pos, item.clone()));
+					}
+				}
+				let w = 32.;
+				state.prim.draw_rounded_rectangle(
+					pos.x - w / 2.,
+					pos.y - w / 2.,
+					pos.x + w / 2.,
+					pos.y + w / 2.,
+					8.,
+					8.,
+					Color::from_rgb_f(1., 1., 1.),
+					3.,
+				);
+
+				if slot.item.is_some()
+				{
+					state.prim.draw_filled_circle(
+						pos.x,
+						pos.y,
+						w / 3.,
+						Color::from_rgba_f(1., 0., 0., 1.),
+					);
+				}
+				let arc = PI / 4.;
+				state.prim.draw_arc(
+					pos.x,
+					pos.y,
+					w,
+					-slot.dir - arc / 2. + PI * 3. / 2.,
+					arc,
+					Color::from_rgba_f(1., 1., 1., 1.),
+					4.,
+				);
+			}
+
+			if let Some((pos, item)) = hover_item
+			{
+				state.prim.draw_filled_rectangle(
+					pos.x,
+					pos.y,
+					pos.x + 256.,
+					pos.y + 128.,
+					Color::from_rgba_f(0., 0., 0., 0.5),
+				);
+
+				let x = pos.x + 16.;
+				let mut y = pos.y + 16.;
+				for line in item.kind.description().lines()
+				{
+					state.core.draw_text(
+						&state.ui_font,
+						Color::from_rgb_f(1., 1., 1.),
+						x,
+						y,
+						FontAlign::Left,
+						line,
+					);
+					y += 16.;
+				}
+			}
+		}
 	}
 }
 
@@ -272,6 +450,17 @@ fn make_player(
 						})),
 					}),
 				},
+				comps::ItemSlot {
+					pos: Point2::new(1.0, 0.0),
+					dir: 0.,
+
+					item: Some(comps::Item {
+						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
+							fire_interval: 1.,
+							arc: PI / 4.0,
+						})),
+					}),
+				},
 			],
 			want_action_1: false,
 			target_pos: Point3::new(0., 0., 0.),
@@ -363,8 +552,9 @@ struct Map
 	rng: StdRng,
 	player: hecs::Entity,
 	player_pos: Point3<f32>,
-	project: Perspective3<f32>,
 	mouse_entity: Option<hecs::Entity>,
+	buffer_width: f32,
+	buffer_height: f32,
 }
 
 impl Map
@@ -384,9 +574,15 @@ impl Map
 			rng: rng,
 			player_pos: Point3::new(0., 0., 0.),
 			player: player,
-			project: utils::projection_transform(state.display_width, state.display_height),
 			mouse_entity: None,
+			buffer_width: state.display_width,
+			buffer_height: state.display_height,
 		})
+	}
+
+	fn make_project(&self) -> Perspective3<f32>
+	{
+		utils::projection_transform(self.buffer_width, self.buffer_height)
 	}
 
 	fn make_camera(&self) -> Isometry3<f32>
@@ -401,10 +597,10 @@ impl Map
 	fn get_mouse_ground_pos(&self, state: &game_state::GameState) -> Point3<f32>
 	{
 		let (x, y) = (state.mouse_pos.x, state.mouse_pos.y);
-		let fx = -1. + 2. * x as f32 / state.display_width;
-		let fy = -1. + 2. * y as f32 / state.display_height;
+		let fx = -1. + 2. * x as f32 / self.buffer_width;
+		let fy = -1. + 2. * y as f32 / self.buffer_height;
 		let camera = self.make_camera();
-		utils::get_ground_from_screen(fx, -fy, self.project, camera)
+		utils::get_ground_from_screen(fx, -fy, self.make_project(), camera)
 	}
 
 	fn logic(&mut self, state: &mut game_state::GameState)
@@ -560,7 +756,8 @@ impl Map
 		let want_queue = state.controls.get_action_state(controls::Action::Queue) > 0.5;
 		let want_action_1 = state.controls.get_action_state(controls::Action::Action1) > 0.5;
 		let mouse_ground_pos = self.get_mouse_ground_pos(state);
-		if want_move
+		let mouse_in_buffer = (state.mouse_pos.x as f32) < self.buffer_width;
+		if want_move && mouse_in_buffer
 		{
 			state.controls.clear_action_state(controls::Action::Move);
 			let marker = make_target(mouse_ground_pos, &mut self.world, state)?;
@@ -586,7 +783,7 @@ impl Map
 				self.world.despawn(marker)?;
 			}
 		}
-		if want_action_1
+		if want_action_1 && mouse_in_buffer
 		{
 			if let Ok(mut equipment) = self.world.get::<&mut comps::Equipment>(self.player)
 			{
@@ -596,23 +793,26 @@ impl Map
 		}
 
 		// Mouse hover.
-		let mouse_entries = grid.query_rect(
-			mouse_ground_pos.zx() - Vector2::new(0.1, 0.1) - center.coords,
-			mouse_ground_pos.zx() + Vector2::new(0.1, 0.1) - center.coords,
-			|_| true,
-		);
-
-		if let Some(entry) = mouse_entries.first()
+		if mouse_in_buffer
 		{
-			if let (Ok(pos), Ok(solid), Ok(_)) = (
-				self.world.get::<&comps::Position>(entry.inner.entity),
-				self.world.get::<&comps::Solid>(entry.inner.entity),
-				self.world.get::<&comps::ShipState>(entry.inner.entity),
-			)
+			let mouse_entries = grid.query_rect(
+				mouse_ground_pos.zx() - Vector2::new(0.1, 0.1) - center.coords,
+				mouse_ground_pos.zx() + Vector2::new(0.1, 0.1) - center.coords,
+				|_| true,
+			);
+
+			if let Some(entry) = mouse_entries.first()
 			{
-				if (pos.pos - mouse_ground_pos).magnitude() < solid.size
+				if let (Ok(pos), Ok(solid), Ok(_)) = (
+					self.world.get::<&comps::Position>(entry.inner.entity),
+					self.world.get::<&comps::Solid>(entry.inner.entity),
+					self.world.get::<&comps::ShipState>(entry.inner.entity),
+				)
 				{
-					self.mouse_entity = Some(entry.inner.entity);
+					if (pos.pos - mouse_ground_pos).magnitude() < solid.size
+					{
+						self.mouse_entity = Some(entry.inner.entity);
+					}
 				}
 			}
 		}
@@ -875,20 +1075,21 @@ impl Map
 		Ok(None)
 	}
 
-	fn draw(&mut self, state: &game_state::GameState) -> Result<()>
+	fn draw(&mut self, state: &game_state::GameState, draw_ui: bool) -> Result<()>
 	{
 		state.core.set_depth_test(Some(DepthFunction::Less));
 
+		let project = self.make_project();
 		state
 			.core
-			.use_projection_transform(&utils::mat4_to_transform(self.project.into_inner()));
+			.use_projection_transform(&utils::mat4_to_transform(project.into_inner()));
 
 		let camera = self.make_camera();
 
-		let tl = utils::get_ground_from_screen(-1.0, 1.0, self.project, camera);
-		let tr = utils::get_ground_from_screen(1.0, 1.0, self.project, camera);
-		let bl = utils::get_ground_from_screen(-1.0, -1.0, self.project, camera);
-		let br = utils::get_ground_from_screen(1.0, -1.0, self.project, camera);
+		let tl = utils::get_ground_from_screen(-1.0, 1.0, project, camera);
+		let tr = utils::get_ground_from_screen(1.0, 1.0, project, camera);
+		let bl = utils::get_ground_from_screen(-1.0, -1.0, project, camera);
+		let br = utils::get_ground_from_screen(1.0, -1.0, project, camera);
 		let vtxs = [
 			mesh::WaterVertex {
 				x: tl.x,
@@ -950,7 +1151,7 @@ impl Map
 				.draw(&state.prim, |s| state.get_bitmap(s));
 		}
 
-		let (dw, dh) = (state.display_width as f32, state.display_height as f32);
+		let (dw, dh) = (self.buffer_width, self.buffer_height);
 		let ortho_mat = Matrix4::new_orthographic(0., dw, dh, 0., -1., 1.);
 		state
 			.core
@@ -962,91 +1163,95 @@ impl Map
 			.use_shader(Some(&*state.default_shader.upgrade().unwrap()))
 			.unwrap();
 
-		let mut weapon_slots = vec![];
-		if let (Ok(pos), Ok(equipment)) = (
-			self.world.get::<&comps::Position>(self.player),
-			self.world.get::<&comps::Equipment>(self.player),
-		)
+		if draw_ui
 		{
-			for slot in &equipment.slots
+			let mut weapon_slots = vec![];
+			if let (Ok(pos), Ok(equipment)) = (
+				self.world.get::<&comps::Position>(self.player),
+				self.world.get::<&comps::Equipment>(self.player),
+			)
 			{
-				if let Some(item) = slot.item.as_ref()
+				for slot in &equipment.slots
 				{
-					match &item.kind
+					if let Some(item) = slot.item.as_ref()
 					{
-						comps::ItemKind::Weapon(weapon) =>
+						match &item.kind
 						{
-							weapon_slots.push((
-								pos.pos,
-								pos.dir,
-								weapon.time_to_fire,
-								weapon.stats.fire_interval,
-								slot.pos,
-								slot.dir,
-								weapon.stats.arc,
-							));
+							comps::ItemKind::Weapon(weapon) =>
+							{
+								weapon_slots.push((
+									pos.pos,
+									pos.dir,
+									weapon.time_to_fire,
+									weapon.stats.fire_interval,
+									slot.pos,
+									slot.dir,
+									weapon.stats.arc,
+								));
+							}
 						}
 					}
 				}
 			}
-		}
-		let w = 32.;
-		let total = weapon_slots.len() as f32 * w;
-		let offt = total / 2.;
-		let mouse_ground_pos = self.get_mouse_ground_pos(state);
+			let w = 32.;
+			let total = weapon_slots.len() as f32 * w;
+			let offt = total / 2.;
+			let mouse_ground_pos = self.get_mouse_ground_pos(state);
 
-		for (i, (pos, dir, time_to_fire, fire_interval, slot_pos, slot_dir, arc)) in
-			weapon_slots.iter().enumerate()
-		{
-			let x = i as f32 * w - offt + dw / 2.;
-			let y = dh - 2. * w;
-			let f = 1. - utils::clamp((time_to_fire - state.time()) as f32 / fire_interval, 0., 1.);
-
-			let rot = Rotation2::new(*dir);
-			let rot_slot = Rotation2::new(*slot_dir);
-			let slot_pos = pos.zx() + rot * slot_pos.coords;
-			let slot_vec_dir = rot_slot * rot * Vector2::new(1., 0.);
-			let target_dir = (mouse_ground_pos.zx() - slot_pos).normalize();
-			let min_dot = (arc / 2.).cos();
-
-			if slot_vec_dir.dot(&target_dir) > min_dot
+			for (i, (pos, dir, time_to_fire, fire_interval, slot_pos, slot_dir, arc)) in
+				weapon_slots.iter().enumerate()
 			{
-				state.prim.draw_filled_pieslice(
-					x + w / 2.,
-					y + w / 2.,
-					w / 2.,
-					slot_dir - arc / 2. + PI / 2.,
-					*arc,
-					Color::from_rgba_f(f, f, f, f),
-				);
+				let x = i as f32 * w - offt + dw / 2.;
+				let y = dh - 2. * w;
+				let f =
+					1. - utils::clamp((time_to_fire - state.time()) as f32 / fire_interval, 0., 1.);
+
+				let rot = Rotation2::new(*dir);
+				let rot_slot = Rotation2::new(*slot_dir);
+				let slot_pos = pos.zx() + rot * slot_pos.coords;
+				let slot_vec_dir = rot_slot * rot * Vector2::new(1., 0.);
+				let target_dir = (mouse_ground_pos.zx() - slot_pos).normalize();
+				let min_dot = (arc / 2.).cos();
+
+				if slot_vec_dir.dot(&target_dir) > min_dot
+				{
+					state.prim.draw_filled_pieslice(
+						x + w / 2.,
+						y + w / 2.,
+						w / 2.,
+						-slot_dir - arc / 2. + PI * 3. / 2.,
+						*arc,
+						Color::from_rgba_f(f, f, f, f),
+					);
+				}
+				else
+				{
+					state.prim.draw_pieslice(
+						x + w / 2.,
+						y + w / 2.,
+						w / 2.,
+						-slot_dir - arc / 2. + PI * 3. / 2.,
+						*arc,
+						Color::from_rgba_f(f, f, f, f),
+						3.,
+					);
+				}
 			}
-			else
+
+			if let Ok(ship_state) = self.world.get::<&comps::ShipState>(self.player)
 			{
-				state.prim.draw_pieslice(
-					x + w / 2.,
-					y + w / 2.,
-					w / 2.,
-					slot_dir - arc / 2. + PI / 2.,
-					*arc,
-					Color::from_rgba_f(f, f, f, f),
-					3.,
-				);
+				draw_ship_state(&*ship_state, 16., dh - 32., state);
 			}
-		}
 
-		if let Ok(ship_state) = self.world.get::<&comps::ShipState>(self.player)
-		{
-			draw_ship_state(&*ship_state, 16., dh - 32., state);
-		}
-
-		if let Some(ship_state) = self
-			.mouse_entity
-			.as_ref()
-			.and_then(|e| self.world.get::<&comps::ShipState>(*e).ok())
-		{
-			if self.mouse_entity != Some(self.player)
+			if let Some(ship_state) = self
+				.mouse_entity
+				.as_ref()
+				.and_then(|e| self.world.get::<&comps::ShipState>(*e).ok())
 			{
-				draw_ship_state(&*ship_state, dw - 100., dh - 32., state);
+				if self.mouse_entity != Some(self.player)
+				{
+					draw_ship_state(&*ship_state, dw - 100., dh - 32., state);
+				}
 			}
 		}
 

@@ -135,6 +135,21 @@ pub enum ItemKind
 	Weapon(Weapon),
 }
 
+impl ItemKind
+{
+	pub fn description(&self) -> String
+	{
+		match self
+		{
+			ItemKind::Weapon(weapon) =>
+			{
+				let fire_interval = weapon.stats.fire_interval;
+				format!("Reload Time: {fire_interval:.2} sec")
+			}
+		}
+	}
+}
+
 #[derive(Clone, Debug)]
 pub struct Item
 {

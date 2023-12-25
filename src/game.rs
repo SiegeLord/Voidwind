@@ -16,6 +16,8 @@ use std::collections::HashMap;
 
 use std::f32::consts::PI;
 
+const SLOT_WIDTH: f32 = 32.;
+
 pub struct Game
 {
 	map: Map,
@@ -57,6 +59,10 @@ impl Game
 	) -> Result<Option<game_state::NextScreen>>
 	{
 		state.controls.decode_event(event);
+		if let Some(status_screen) = self.status_screen.as_mut()
+		{
+			status_screen.input(event, state);
+		}
 		match *event
 		{
 			Event::MouseAxes { x, y, .. } =>
@@ -212,6 +218,9 @@ struct StatusScreen
 	buffer_width: f32,
 	buffer_height: f32,
 	hover_slot: Option<usize>,
+	// Source slot, item
+	dragged_item: Option<(usize, comps::Item)>,
+	mouse_button_down: bool,
 }
 
 impl StatusScreen
@@ -222,6 +231,8 @@ impl StatusScreen
 			buffer_width: state.display_width / 2.,
 			buffer_height: state.display_height,
 			hover_slot: None,
+			dragged_item: None,
+			mouse_button_down: false,
 		}
 	}
 
@@ -231,25 +242,67 @@ impl StatusScreen
 		Point2::new(-real_pos.y, -real_pos.x) * 64. + Vector2::new(bw / 2., bh / 2.)
 	}
 
-	fn logic(&mut self, map: &Map, state: &game_state::GameState)
+	fn input(&mut self, event: &Event, _state: &mut game_state::GameState)
+	{
+		match *event
+		{
+			Event::MouseButtonDown { button: 1, .. } =>
+			{
+				self.mouse_button_down = true;
+			}
+			Event::MouseButtonUp { button: 1, .. } =>
+			{
+				self.mouse_button_down = false;
+			}
+			_ => (),
+		}
+	}
+
+	fn get_mouse_pos(&self, state: &game_state::GameState) -> Point2<f32>
 	{
 		let bw = self.buffer_width;
-		let mouse_pos =
-			Point2::new(state.mouse_pos.x as f32, state.mouse_pos.y as f32) - Vector2::new(bw, 0.);
+		Point2::new(state.mouse_pos.x as f32, state.mouse_pos.y as f32) - Vector2::new(bw, 0.)
+	}
+
+	fn logic(&mut self, map: &mut Map, state: &game_state::GameState)
+	{
+		let mouse_pos = self.get_mouse_pos(state);
 		self.hover_slot = None;
-		if let Ok(equipment) = map.world.get::<&mut comps::Equipment>(map.player)
+		let mut old_item = None;
+		if let Ok(mut equipment) = map.world.get::<&mut comps::Equipment>(map.player)
 		{
-			for (i, slot) in equipment.slots.iter().enumerate()
+			for (i, slot) in equipment.slots.iter_mut().enumerate()
 			{
 				let pos = self.get_slot_pos(slot.pos);
-				let w = 32.;
+				let w = SLOT_WIDTH;
 				if mouse_pos.x > pos.x - w / 2.
 					&& mouse_pos.x < pos.x + w / 2.
 					&& mouse_pos.y > pos.y - w / 2.
 					&& mouse_pos.y < pos.y + w / 2.
 				{
-					self.hover_slot = Some(i);
+					if self.mouse_button_down && self.dragged_item.is_none()
+					{
+						self.dragged_item = slot.item.take().map(|item| (i, item));
+					}
+					else if !self.mouse_button_down && self.dragged_item.is_some()
+					{
+						let (source_i, item) = self.dragged_item.take().unwrap();
+						old_item = slot.item.take().map(|item| (source_i, item));
+						slot.item = Some(item);
+					}
+					if !self.mouse_button_down
+					{
+						self.hover_slot = Some(i);
+					}
 				}
+			}
+			if !self.mouse_button_down && self.dragged_item.is_some()
+			{
+				old_item = self.dragged_item.take();
+			}
+			if let Some((i, item)) = old_item
+			{
+				equipment.slots[i].item = Some(item);
 			}
 		}
 	}
@@ -257,6 +310,7 @@ impl StatusScreen
 	fn draw(&self, map: &Map, state: &game_state::GameState)
 	{
 		state.core.clear_to_color(Color::from_rgb_f(0.1, 0.1, 0.2));
+		let mouse_pos = self.get_mouse_pos(state);
 
 		if let Ok(mut equipment) = map.world.get::<&mut comps::Equipment>(map.player)
 		{
@@ -271,7 +325,7 @@ impl StatusScreen
 						hover_item = Some((pos, item.clone()));
 					}
 				}
-				let w = 32.;
+				let w = SLOT_WIDTH;
 				state.prim.draw_rounded_rectangle(
 					pos.x - w / 2.,
 					pos.y - w / 2.,
@@ -283,25 +337,23 @@ impl StatusScreen
 					3.,
 				);
 
-				if slot.item.is_some()
+				if let Some(item) = slot.item.as_ref()
 				{
-					state.prim.draw_filled_circle(
+					draw_item(pos.x, pos.y, item, state);
+				}
+				if let Some(slot_dir) = slot.dir
+				{
+					let arc = PI / 4.;
+					state.prim.draw_arc(
 						pos.x,
 						pos.y,
-						w / 3.,
-						Color::from_rgba_f(1., 0., 0., 1.),
+						w,
+						-slot_dir - arc / 2. + PI * 3. / 2.,
+						arc,
+						Color::from_rgba_f(1., 1., 1., 1.),
+						4.,
 					);
 				}
-				let arc = PI / 4.;
-				state.prim.draw_arc(
-					pos.x,
-					pos.y,
-					w,
-					-slot.dir - arc / 2. + PI * 3. / 2.,
-					arc,
-					Color::from_rgba_f(1., 1., 1., 1.),
-					4.,
-				);
 			}
 
 			if let Some((pos, item)) = hover_item
@@ -311,7 +363,7 @@ impl StatusScreen
 					pos.y,
 					pos.x + 256.,
 					pos.y + 128.,
-					Color::from_rgba_f(0., 0., 0., 0.5),
+					Color::from_rgba_f(0., 0., 0., 0.75),
 				);
 
 				let x = pos.x + 16.;
@@ -329,8 +381,20 @@ impl StatusScreen
 					y += 16.;
 				}
 			}
+
+			if let Some((_, ref item)) = self.dragged_item
+			{
+				draw_item(mouse_pos.x, mouse_pos.y, item, state);
+			}
 		}
 	}
+}
+
+fn draw_item(x: f32, y: f32, _item: &comps::Item, state: &game_state::GameState)
+{
+	state
+		.prim
+		.draw_filled_circle(x, y, 8., Color::from_rgba_f(1., 0., 0., 1.));
 }
 
 fn draw_ship_state(ship_state: &comps::ShipState, x: f32, y: f32, state: &game_state::GameState)
@@ -401,6 +465,59 @@ fn make_player(
 {
 	let mesh = "data/test.glb";
 	game_state::cache_mesh(state, mesh)?;
+	let equipment = comps::Equipment::new(
+		8,
+		true,
+		vec![
+			comps::ItemSlot {
+				pos: Point2::new(0.5, 1.0),
+				dir: Some(PI / 2.0),
+
+				item: Some(comps::Item {
+					kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
+						fire_interval: 1.,
+						arc: PI / 2.0,
+					})),
+				}),
+				is_inventory: false,
+			},
+			comps::ItemSlot {
+				pos: Point2::new(-0.5, 1.0),
+				dir: Some(PI / 2.0),
+
+				item: Some(comps::Item {
+					kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
+						fire_interval: 1.,
+						arc: PI / 2.0,
+					})),
+				}),
+				is_inventory: false,
+			},
+			comps::ItemSlot {
+				pos: Point2::new(0.0, -1.0),
+				dir: Some(-PI / 2.0),
+				item: Some(comps::Item {
+					kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
+						fire_interval: 1.,
+						arc: PI / 2.0,
+					})),
+				}),
+				is_inventory: false,
+			},
+			comps::ItemSlot {
+				pos: Point2::new(1.0, 0.0),
+				dir: Some(0.),
+
+				item: Some(comps::Item {
+					kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
+						fire_interval: 1.,
+						arc: PI / 4.0,
+					})),
+				}),
+				is_inventory: false,
+			},
+		],
+	);
 	let res = world.spawn((
 		comps::Position { pos: pos, dir: 0. },
 		comps::Velocity {
@@ -416,56 +533,7 @@ fn make_player(
 			kind: comps::CollideKind::Big,
 			parent: None,
 		},
-		comps::Equipment {
-			slots: vec![
-				comps::ItemSlot {
-					pos: Point2::new(0.5, 1.0),
-					dir: PI / 2.0,
-
-					item: Some(comps::Item {
-						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
-							fire_interval: 1.,
-							arc: PI / 2.0,
-						})),
-					}),
-				},
-				comps::ItemSlot {
-					pos: Point2::new(-0.5, 1.0),
-					dir: PI / 2.0,
-
-					item: Some(comps::Item {
-						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
-							fire_interval: 1.,
-							arc: PI / 2.0,
-						})),
-					}),
-				},
-				comps::ItemSlot {
-					pos: Point2::new(0.0, -1.0),
-					dir: -PI / 2.0,
-					item: Some(comps::Item {
-						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
-							fire_interval: 1.,
-							arc: PI / 2.0,
-						})),
-					}),
-				},
-				comps::ItemSlot {
-					pos: Point2::new(1.0, 0.0),
-					dir: 0.,
-
-					item: Some(comps::Item {
-						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
-							fire_interval: 1.,
-							arc: PI / 4.0,
-						})),
-					}),
-				},
-			],
-			want_action_1: false,
-			target_pos: Point3::new(0., 0., 0.),
-			allow_out_of_arc_shots: true,
-		},
+		equipment,
 		comps::ShipState { hull: 100. },
 	));
 	Ok(res)
@@ -495,11 +563,13 @@ fn make_enemy(
 			kind: comps::CollideKind::Big,
 			parent: None,
 		},
-		comps::Equipment {
-			slots: vec![
+		comps::Equipment::new(
+			4,
+			false,
+			vec![
 				comps::ItemSlot {
 					pos: Point2::new(0.5, 1.0),
-					dir: PI / 2.0,
+					dir: Some(PI / 2.0),
 
 					item: Some(comps::Item {
 						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
@@ -507,10 +577,11 @@ fn make_enemy(
 							arc: PI / 2.0,
 						})),
 					}),
+					is_inventory: false,
 				},
 				comps::ItemSlot {
 					pos: Point2::new(-0.5, 1.0),
-					dir: PI / 2.0,
+					dir: Some(PI / 2.0),
 
 					item: Some(comps::Item {
 						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
@@ -518,22 +589,21 @@ fn make_enemy(
 							arc: PI / 2.0,
 						})),
 					}),
+					is_inventory: false,
 				},
 				comps::ItemSlot {
 					pos: Point2::new(0.0, -1.0),
-					dir: -PI / 2.0,
+					dir: Some(-PI / 2.0),
 					item: Some(comps::Item {
 						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
 							fire_interval: 1.,
 							arc: PI / 2.0,
 						})),
 					}),
+					is_inventory: false,
 				},
 			],
-			want_action_1: false,
-			target_pos: Point3::new(0., 0., 0.),
-			allow_out_of_arc_shots: false,
-		},
+		),
 		comps::ShipState { hull: 100. },
 	));
 	Ok(res)
@@ -831,6 +901,10 @@ impl Map
 			equipment.want_action_1 = false;
 			for slot in &mut equipment.slots
 			{
+				if slot.is_inventory
+				{
+					continue;
+				}
 				if let Some(item) = slot.item.as_mut()
 				{
 					match &mut item.kind
@@ -840,26 +914,28 @@ impl Map
 							if state.time() > weapon.time_to_fire
 							{
 								let rot = Rotation2::new(pos.dir);
-								let rot_slot = Rotation2::new(slot.dir);
+								let slot_dir = slot.dir.unwrap_or(0.);
+								let rot_slot = Rotation2::new(slot_dir);
 								let slot_pos = pos.pos.zx() + rot * slot.pos.coords;
-								let slot_dir = rot_slot * rot * Vector2::new(1., 0.);
+								let slot_dir_vec = rot_slot * rot * Vector2::new(1., 0.);
 								let target_dir = (equipment.target_pos.zx() - slot_pos).normalize();
 								let min_dot = (weapon.stats.arc / 2.).cos();
+								let min_dot_2 = (2. * weapon.stats.arc / 2.).cos();
 
 								let spawn_pos = Point3::new(slot_pos.y, 3., slot_pos.x);
 								let mut spawn_dir = None;
-								if slot_dir.dot(&target_dir) > min_dot
+								if slot_dir_vec.dot(&target_dir) > min_dot
 								{
 									spawn_dir = Some(target_dir);
 								}
-								else if slot_dir.dot(&target_dir) > 0.
+								else if slot_dir_vec.dot(&target_dir) > min_dot_2
 									&& equipment.allow_out_of_arc_shots
 								{
 									let cand_dir1 =
-										Rotation2::new(slot.dir + weapon.stats.arc / 2.)
+										Rotation2::new(slot_dir + weapon.stats.arc / 2.)
 											* rot * Vector2::new(1., 0.);
 									let cand_dir2 =
-										Rotation2::new(slot.dir - weapon.stats.arc / 2.)
+										Rotation2::new(slot_dir - weapon.stats.arc / 2.)
 											* rot * Vector2::new(1., 0.);
 
 									let cand_dir;
@@ -1173,6 +1249,10 @@ impl Map
 			{
 				for slot in &equipment.slots
 				{
+					if slot.is_inventory
+					{
+						continue;
+					}
 					if let Some(item) = slot.item.as_ref()
 					{
 						match &item.kind
@@ -1185,7 +1265,7 @@ impl Map
 									weapon.time_to_fire,
 									weapon.stats.fire_interval,
 									slot.pos,
-									slot.dir,
+									slot.dir.unwrap_or(0.),
 									weapon.stats.arc,
 								));
 							}

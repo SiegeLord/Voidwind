@@ -4,6 +4,8 @@ use na::{Point2, Point3, Vector3};
 use nalgebra as na;
 use rand::prelude::*;
 
+use std::f32::consts::PI;
+
 #[derive(Debug, Copy, Clone)]
 pub struct Position
 {
@@ -144,7 +146,14 @@ impl ItemKind
 			ItemKind::Weapon(weapon) =>
 			{
 				let fire_interval = weapon.stats.fire_interval;
-				format!("Reload Time: {fire_interval:.2} sec")
+				let arc = (weapon.stats.arc / PI * 180.) as i32;
+				[
+					format!("Cannon"),
+					"".into(),
+					format!("Reload Time: {fire_interval:.1} sec"),
+					format!("Arc: {arc}°"),
+				]
+				.join("\n")
 			}
 		}
 	}
@@ -161,7 +170,8 @@ pub struct ItemSlot
 {
 	pub item: Option<Item>,
 	pub pos: Point2<f32>,
-	pub dir: f32,
+	pub dir: Option<f32>,
+	pub is_inventory: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -171,6 +181,32 @@ pub struct Equipment
 	pub want_action_1: bool,
 	pub target_pos: Point3<f32>,
 	pub allow_out_of_arc_shots: bool,
+}
+
+impl Equipment
+{
+	pub fn new(
+		inventory_size: usize, allow_out_of_arc_shots: bool, mut slots: Vec<ItemSlot>,
+	) -> Self
+	{
+		for i in 0..inventory_size
+		{
+			let x = (i as i32 % 4) as f32 - 1.5;
+			let y = (i as i32 / 4) as f32 - 4.;
+			slots.push(ItemSlot {
+				item: None,
+				pos: Point2::new(y, x),
+				dir: None,
+				is_inventory: true,
+			})
+		}
+		Self {
+			slots: slots,
+			want_action_1: false,
+			target_pos: Point3::origin(),
+			allow_out_of_arc_shots: allow_out_of_arc_shots,
+		}
+	}
 }
 
 #[derive(Clone, Debug)]

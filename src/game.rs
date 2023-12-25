@@ -92,7 +92,7 @@ impl Game
 							in_game_menu = true;
 						}
 					}
-					KeyCode::S =>
+					KeyCode::I =>
 					{
 						if self.status_screen.is_some()
 						{
@@ -217,10 +217,11 @@ struct StatusScreen
 {
 	buffer_width: f32,
 	buffer_height: f32,
+	mouse_button_down: bool,
+
 	hover_slot: Option<usize>,
 	// Source slot, item
 	dragged_item: Option<(usize, comps::Item)>,
-	mouse_button_down: bool,
 }
 
 impl StatusScreen
@@ -822,12 +823,17 @@ impl Map
 		}
 
 		// Player Input
+		let player_alive = self
+			.world
+			.get::<&comps::ShipState>(self.player)
+			.map(|s| s.hull >= 0.)
+			.unwrap_or(false);
 		let want_move = state.controls.get_action_state(controls::Action::Move) > 0.5;
 		let want_queue = state.controls.get_action_state(controls::Action::Queue) > 0.5;
 		let want_action_1 = state.controls.get_action_state(controls::Action::Action1) > 0.5;
 		let mouse_ground_pos = self.get_mouse_ground_pos(state);
 		let mouse_in_buffer = (state.mouse_pos.x as f32) < self.buffer_width;
-		if want_move && mouse_in_buffer
+		if want_move && mouse_in_buffer && player_alive
 		{
 			state.controls.clear_action_state(controls::Action::Move);
 			let marker = make_target(mouse_ground_pos, &mut self.world, state)?;
@@ -853,7 +859,7 @@ impl Map
 				self.world.despawn(marker)?;
 			}
 		}
-		if want_action_1 && mouse_in_buffer
+		if want_action_1 && mouse_in_buffer && player_alive
 		{
 			if let Ok(mut equipment) = self.world.get::<&mut comps::Equipment>(self.player)
 			{
@@ -1019,26 +1025,31 @@ impl Map
 			let left = rot * Vector2::new(0., 1.);
 			if diff.dot(&left) > 0.
 			{
-				vel.dir_vel = stats.speed / 5.;
+				vel.dir_vel = stats.speed / 10.;
 			}
 			else
 			{
-				vel.dir_vel = -stats.speed / 5.;
+				vel.dir_vel = -stats.speed / 10.;
 			}
 			vel.vel = stats.speed * Vector3::new(forward.y, 0., forward.x);
 		}
 
 		// AI
-		for (_id, (pos, target, ai, equipment)) in self
+		for (_id, (pos, target, ai, equipment, ship_state)) in self
 			.world
 			.query::<(
 				&comps::Position,
 				&mut comps::Target,
 				&mut comps::AI,
 				&mut comps::Equipment,
+				&comps::ShipState,
 			)>()
 			.iter()
 		{
+			if ship_state.hull < 0.
+			{
+				continue;
+			}
 			match ai.state
 			{
 				comps::AIState::Idle =>
@@ -1115,11 +1126,13 @@ impl Map
 		}
 
 		// Hull death
-		for (id, ship_state) in self.world.query_mut::<&comps::ShipState>()
+		for (_, (target, ship_state)) in self
+			.world
+			.query_mut::<(&mut comps::Target, &comps::ShipState)>()
 		{
 			if ship_state.hull < 0.
 			{
-				to_die.push(id);
+				target.clear(|m| to_die.push(m));
 			}
 		}
 

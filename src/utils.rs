@@ -15,8 +15,8 @@ pub type Vec2D = nalgebra::Vector2<f32>;
 pub type Vec3D = nalgebra::Vector3<f32>;
 
 use na::{
-	Isometry3, Matrix4, Perspective3, Point2, Point3, Quaternion, RealField, Rotation2, Rotation3,
-	Unit, Vector2, Vector3, Vector4,
+	Isometry3, Matrix4, Perspective3, Point2, Point3, Point4, Quaternion, RealField, Rotation2,
+	Rotation3, Unit, Vector2, Vector3, Vector4,
 };
 use nalgebra as na;
 
@@ -155,16 +155,40 @@ pub fn load_sample(audio: &AudioAddon, path: &str) -> Result<Sample>
 	Ok(Sample::load(audio, path).map_err(|_| format!("Couldn't load '{}'", path))?)
 }
 
+pub trait Unproject
+{
+	fn unproject(&self, point: &Point3<f32>) -> Point3<f32>;
+}
+
+impl Unproject for Perspective3<f32>
+{
+	fn unproject(&self, point: &Point3<f32>) -> Point3<f32>
+	{
+		self.unproject_point(point)
+	}
+}
+
+impl Unproject for Matrix4<f32>
+{
+	fn unproject(&self, point: &Point3<f32>) -> Point3<f32>
+	{
+		let homogeneous = na::linalg::QR::new(*self)
+			.solve(&Vector4::new(point.x, point.y, point.z, 1.))
+			.unwrap();
+		Point3::from(homogeneous.xyz() / homogeneous.w)
+	}
+}
+
 /// x/y need to be in [-1, 1]
-pub fn get_ground_from_screen(
-	x: f32, y: f32, project: Perspective3<f32>, camera: Isometry3<f32>,
+pub fn get_ground_from_screen<T: Unproject>(
+	x: f32, y: f32, project: T, camera: Isometry3<f32>,
 ) -> Point3<f32>
 {
 	let near_point = Point3::new(x, y, -1.);
 	let far_point = Point3::new(x, y, 1.);
 
-	let near_unprojected = project.unproject_point(&near_point);
-	let far_unprojected = project.unproject_point(&far_point);
+	let near_unprojected = project.unproject(&near_point);
+	let far_unprojected = project.unproject(&far_point);
 
 	let camera_inv = camera.inverse();
 

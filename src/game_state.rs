@@ -9,7 +9,7 @@ use nalgebra::Point2;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::{fmt, path, rc, sync};
+use std::{fmt, path, sync};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Options
@@ -167,10 +167,6 @@ pub struct GameState
 	pub basic_shader: sync::Weak<Shader>,
 	pub water_shader: sync::Weak<Shader>,
 	pub default_shader: sync::Weak<Shader>,
-
-	pub left_half_screen: rc::Weak<SubBitmap>,
-	pub right_half_screen: rc::Weak<SubBitmap>,
-	pub full_screen: rc::Weak<SubBitmap>,
 }
 
 impl GameState
@@ -221,9 +217,6 @@ impl GameState
 			basic_shader: sync::Weak::new(),
 			water_shader: sync::Weak::new(),
 			default_shader: sync::Weak::new(),
-			left_half_screen: rc::Weak::new(),
-			right_half_screen: rc::Weak::new(),
-			full_screen: rc::Weak::new(),
 		})
 	}
 
@@ -236,24 +229,6 @@ impl GameState
 		self.water_shader =
 			make_shader(display, "data/water_vertex.glsl", "data/water_pixel.glsl")?;
 		self.default_shader = make_default_shader(&self.core, display)?;
-
-		self.left_half_screen = display
-			.get_backbuffer()
-			.create_sub_bitmap(0, 0, display.get_width() / 2, display.get_height())
-			.map_err(|_| "Couldn't create subbitmap".to_string())?;
-		self.right_half_screen = display
-			.get_backbuffer()
-			.create_sub_bitmap(
-				display.get_width() / 2,
-				0,
-				display.get_width() / 2,
-				display.get_height(),
-			)
-			.map_err(|_| "Couldn't create subbitmap".to_string())?;
-		self.full_screen = display
-			.get_backbuffer()
-			.create_sub_bitmap(0, 0, display.get_width(), display.get_height())
-			.map_err(|_| "Couldn't create subbitmap".to_string())?;
 		Ok(())
 	}
 

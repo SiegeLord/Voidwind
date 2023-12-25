@@ -7,7 +7,7 @@ use allegro_font::*;
 use allegro_primitives::*;
 use na::{
 	Isometry3, Matrix4, Perspective3, Point2, Point3, Quaternion, RealField, Rotation2, Rotation3,
-	Unit, Vector2, Vector3, Vector4,
+	Translation3, Unit, Vector2, Vector3, Vector4,
 };
 use nalgebra as na;
 use rand::prelude::*;
@@ -21,7 +21,7 @@ const SLOT_WIDTH: f32 = 32.;
 pub struct Game
 {
 	map: Map,
-	status_screen: Option<StatusScreen>,
+	equipment_screen: Option<EquipmentScreen>,
 	subscreens: Vec<ui::SubScreen>,
 }
 
@@ -32,7 +32,7 @@ impl Game
 		Ok(Self {
 			map: Map::new(state)?,
 			subscreens: vec![],
-			status_screen: None,
+			equipment_screen: None,
 		})
 	}
 
@@ -42,9 +42,30 @@ impl Game
 	{
 		if self.subscreens.is_empty()
 		{
-			if let Some(status_screen) = self.status_screen.as_mut()
+			let want_inventory = state.controls.get_action_state(controls::Action::Inventory) > 0.5;
+			state
+				.controls
+				.clear_action_state(controls::Action::Inventory);
+
+			if want_inventory
 			{
-				status_screen.logic(&mut self.map, state);
+				if self.equipment_screen.is_none()
+				{
+					self.equipment_screen = Some(EquipmentScreen::new(state));
+				}
+			}
+			if self.map.dock_entity.is_some() && self.equipment_screen.is_none()
+			{
+				self.equipment_screen = Some(EquipmentScreen::new(state));
+			}
+
+			if let Some(equipment_screen) = self.equipment_screen.as_mut()
+			{
+				self.map.mouse_in_buffer = equipment_screen.logic(&mut self.map, state);
+			}
+			else
+			{
+				self.map.mouse_in_buffer = true;
 			}
 			self.map.logic(state)
 		}
@@ -58,10 +79,18 @@ impl Game
 		&mut self, event: &Event, state: &mut game_state::GameState,
 	) -> Result<Option<game_state::NextScreen>>
 	{
-		state.controls.decode_event(event);
-		if let Some(status_screen) = self.status_screen.as_mut()
+		let handled;
+		if let Some(equipment_screen) = self.equipment_screen.as_mut()
 		{
-			status_screen.input(event, state);
+			handled = equipment_screen.input(event, &mut self.map, state);
+		}
+		else
+		{
+			handled = false;
+		}
+		if !handled
+		{
+			state.controls.decode_event(event);
 		}
 		match *event
 		{
@@ -83,24 +112,18 @@ impl Game
 				{
 					KeyCode::Escape =>
 					{
-						if self.status_screen.is_some()
+						if self.equipment_screen.is_some()
 						{
-							self.status_screen = None;
+							self.equipment_screen
+								.as_mut()
+								.unwrap()
+								.return_item(&mut self.map);
+							self.equipment_screen = None;
+							self.map.dock_entity = None;
 						}
 						else
 						{
 							in_game_menu = true;
-						}
-					}
-					KeyCode::I =>
-					{
-						if self.status_screen.is_some()
-						{
-							self.status_screen = None;
-						}
-						else
-						{
-							self.status_screen = Some(StatusScreen::new(state));
 						}
 					}
 					_ => (),
@@ -164,31 +187,11 @@ impl Game
 	pub fn draw(&mut self, state: &game_state::GameState) -> Result<()>
 	{
 		state.core.clear_to_color(Color::from_rgb_f(0.5, 0.5, 1.));
-		if self.status_screen.is_some()
-		{
-			state
-				.core
-				.set_target_bitmap(Some(&*state.left_half_screen.upgrade().unwrap()));
-			self.map.buffer_width = state.display_width / 2.;
-		}
-		else
-		{
-			state
-				.core
-				.set_target_bitmap(Some(&*state.full_screen.upgrade().unwrap()));
-			self.map.buffer_width = state.display_width;
-		}
 		self.map.draw(state, self.subscreens.is_empty())?;
-		if let Some(status_screen) = self.status_screen.as_ref()
+		if let Some(equipment_screen) = self.equipment_screen.as_ref()
 		{
-			state
-				.core
-				.set_target_bitmap(Some(&*state.right_half_screen.upgrade().unwrap()));
-			status_screen.draw(&self.map, state);
+			equipment_screen.draw(&self.map, state);
 		}
-		state
-			.core
-			.set_target_bitmap(Some(&*state.full_screen.upgrade().unwrap()));
 		if let Some(subscreen) = self.subscreens.last_mut()
 		{
 			state.prim.draw_filled_rectangle(
@@ -213,23 +216,24 @@ impl Game
 	}
 }
 
-struct StatusScreen
+struct EquipmentScreen
 {
 	buffer_width: f32,
 	buffer_height: f32,
 	mouse_button_down: bool,
 
-	hover_slot: Option<usize>,
-	// Source slot, item
-	dragged_item: Option<(usize, comps::Item)>,
+	// Source slot, equipment_idx
+	hover_slot: Option<(usize, i32)>,
+	// Source slot, equipment_idx, item
+	dragged_item: Option<(usize, i32, comps::Item)>,
 }
 
-impl StatusScreen
+impl EquipmentScreen
 {
 	fn new(state: &mut game_state::GameState) -> Self
 	{
 		Self {
-			buffer_width: state.display_width / 2.,
+			buffer_width: state.display_width,
 			buffer_height: state.display_height,
 			hover_slot: None,
 			dragged_item: None,
@@ -237,19 +241,42 @@ impl StatusScreen
 		}
 	}
 
-	fn get_slot_pos(&self, real_pos: Point2<f32>) -> Point2<f32>
+	fn get_slot_pos(&self, equipment_idx: i32, real_pos: Point2<f32>) -> Point2<f32>
 	{
 		let (bw, bh) = (self.buffer_width, self.buffer_height);
-		Point2::new(-real_pos.y, -real_pos.x) * 64. + Vector2::new(bw / 2., bh / 2.)
+		Point2::new(-real_pos.y, -real_pos.x) * 64.
+			+ Vector2::new(bw / 6. + bw * 2. / 3. * equipment_idx as f32, bh / 4.)
 	}
 
-	fn input(&mut self, event: &Event, _state: &mut game_state::GameState)
+	fn over_ui(&self, map: &mut Map, state: &game_state::GameState) -> bool
+	{
+		let mouse_pos = Point2::new(state.mouse_pos.x as f32, state.mouse_pos.y as f32);
+		let in_right =
+			mouse_pos.x > self.buffer_width * 2. / 3. && mouse_pos.y < self.buffer_height / 2.;
+		let in_left =
+			mouse_pos.x < self.buffer_width * 1. / 3. && mouse_pos.y < self.buffer_height / 2.;
+		if map.dock_entity.is_some()
+		{
+			in_left || in_right
+		}
+		else
+		{
+			in_right
+		}
+	}
+
+	fn input(&mut self, event: &Event, map: &mut Map, state: &mut game_state::GameState) -> bool
 	{
 		match *event
 		{
 			Event::MouseButtonDown { button: 1, .. } =>
 			{
-				self.mouse_button_down = true;
+				if self.over_ui(map, state)
+				{
+					self.mouse_button_down = true;
+					dbg!(self.mouse_button_down);
+					return true;
+				}
 			}
 			Event::MouseButtonUp { button: 1, .. } =>
 			{
@@ -257,71 +284,131 @@ impl StatusScreen
 			}
 			_ => (),
 		}
+		false
 	}
 
-	fn get_mouse_pos(&self, state: &game_state::GameState) -> Point2<f32>
+	fn logic(&mut self, map: &mut Map, state: &game_state::GameState) -> bool
 	{
-		let bw = self.buffer_width;
-		Point2::new(state.mouse_pos.x as f32, state.mouse_pos.y as f32) - Vector2::new(bw, 0.)
-	}
-
-	fn logic(&mut self, map: &mut Map, state: &game_state::GameState)
-	{
-		let mouse_pos = self.get_mouse_pos(state);
+		let mouse_pos = Point2::new(state.mouse_pos.x as f32, state.mouse_pos.y as f32);
 		self.hover_slot = None;
 		let mut old_item = None;
-		if let Ok(mut equipment) = map.world.get::<&mut comps::Equipment>(map.player)
+
 		{
-			for (i, slot) in equipment.slots.iter_mut().enumerate()
+			let mut dock_equipment = map
+				.dock_entity
+				.and_then(|dock_entity| map.world.get::<&mut comps::Equipment>(dock_entity).ok());
+			let dock_slots = dock_equipment.iter_mut().flat_map(|eq| eq.slots.iter_mut());
+			if let Ok(mut equipment) = map.world.get::<&mut comps::Equipment>(map.player)
 			{
-				let pos = self.get_slot_pos(slot.pos);
-				let w = SLOT_WIDTH;
-				if mouse_pos.x > pos.x - w / 2.
-					&& mouse_pos.x < pos.x + w / 2.
-					&& mouse_pos.y > pos.y - w / 2.
-					&& mouse_pos.y < pos.y + w / 2.
+				for (i, (equipment_idx, slot)) in
+					(equipment.slots.iter_mut().map(|slot| (1, slot)).enumerate())
+						.chain(dock_slots.map(|slot| (0, slot)).enumerate())
 				{
-					if self.mouse_button_down && self.dragged_item.is_none()
+					let pos = self.get_slot_pos(equipment_idx, slot.pos);
+					let w = SLOT_WIDTH;
+					if mouse_pos.x > pos.x - w / 2.
+						&& mouse_pos.x < pos.x + w / 2.
+						&& mouse_pos.y > pos.y - w / 2.
+						&& mouse_pos.y < pos.y + w / 2.
 					{
-						self.dragged_item = slot.item.take().map(|item| (i, item));
+						if self.mouse_button_down && self.dragged_item.is_none()
+						{
+							self.dragged_item =
+								slot.item.take().map(|item| (i, equipment_idx, item));
+						}
+						else if !self.mouse_button_down && self.dragged_item.is_some()
+						{
+							let (source_i, source_equipment_idx, item) =
+								self.dragged_item.take().unwrap();
+							old_item = slot
+								.item
+								.take()
+								.map(|item| (source_i, source_equipment_idx, item));
+							slot.item = Some(item);
+						}
+						if !self.mouse_button_down
+						{
+							self.hover_slot = Some((i, equipment_idx));
+						}
 					}
-					else if !self.mouse_button_down && self.dragged_item.is_some()
+				}
+				if !self.mouse_button_down && self.dragged_item.is_some()
+				{
+					old_item = self.dragged_item.take();
+				}
+				if let Some((i, equipment_idx, item)) = old_item
+				{
+					if equipment_idx == 1
 					{
-						let (source_i, item) = self.dragged_item.take().unwrap();
-						old_item = slot.item.take().map(|item| (source_i, item));
-						slot.item = Some(item);
+						equipment.slots[i].item = Some(item);
 					}
-					if !self.mouse_button_down
+					else if let Some(mut dock_equipment) = dock_equipment
 					{
-						self.hover_slot = Some(i);
+						dock_equipment.slots[i].item = Some(item);
 					}
 				}
 			}
-			if !self.mouse_button_down && self.dragged_item.is_some()
+		}
+		!self.over_ui(map, state)
+	}
+
+	fn return_item(&mut self, map: &Map)
+	{
+		let dock_equipment = map
+			.dock_entity
+			.and_then(|dock_entity| map.world.get::<&mut comps::Equipment>(dock_entity).ok());
+		if let Ok(mut equipment) = map.world.get::<&mut comps::Equipment>(map.player)
+		{
+			if let Some((i, equipment_idx, item)) = self.dragged_item.take()
 			{
-				old_item = self.dragged_item.take();
-			}
-			if let Some((i, item)) = old_item
-			{
-				equipment.slots[i].item = Some(item);
+				if equipment_idx == 1
+				{
+					equipment.slots[i].item = Some(item);
+				}
+				else if let Some(mut dock_equipment) = dock_equipment
+				{
+					dock_equipment.slots[i].item = Some(item);
+				}
 			}
 		}
 	}
 
 	fn draw(&self, map: &Map, state: &game_state::GameState)
 	{
-		state.core.clear_to_color(Color::from_rgb_f(0.1, 0.1, 0.2));
-		let mouse_pos = self.get_mouse_pos(state);
+		if map.dock_entity.is_some()
+		{
+			state.prim.draw_filled_rectangle(
+				0.,
+				0.,
+				self.buffer_width * 1. / 3.,
+				self.buffer_height / 2.,
+				Color::from_rgb_f(0.1, 0.1, 0.2),
+			);
+		}
+		state.prim.draw_filled_rectangle(
+			self.buffer_width * 2. / 3.,
+			0.,
+			self.buffer_width,
+			self.buffer_height / 2.,
+			Color::from_rgb_f(0.1, 0.1, 0.2),
+		);
+		let mouse_pos = Point2::new(state.mouse_pos.x as f32, state.mouse_pos.y as f32);
 
+		let mut dock_equipment = map
+			.dock_entity
+			.and_then(|dock_entity| map.world.get::<&mut comps::Equipment>(dock_entity).ok());
+		let dock_slots = dock_equipment.iter_mut().flat_map(|eq| eq.slots.iter_mut());
 		if let Ok(mut equipment) = map.world.get::<&mut comps::Equipment>(map.player)
 		{
 			let mut hover_item = None;
-			for (i, slot) in equipment.slots.iter_mut().enumerate()
+			for (i, (equipment_idx, slot)) in
+				(equipment.slots.iter_mut().map(|slot| (1, slot)).enumerate())
+					.chain(dock_slots.map(|slot| (0, slot)).enumerate())
 			{
-				let pos = self.get_slot_pos(slot.pos);
+				let pos = self.get_slot_pos(equipment_idx, slot.pos);
 				if let Some(item) = &slot.item
 				{
-					if Some(i) == self.hover_slot
+					if Some((i, equipment_idx)) == self.hover_slot
 					{
 						hover_item = Some((pos, item.clone()));
 					}
@@ -383,7 +470,7 @@ impl StatusScreen
 				}
 			}
 
-			if let Some((_, ref item)) = self.dragged_item
+			if let Some((_, _, ref item)) = self.dragged_item
 			{
 				draw_item(mouse_pos.x, mouse_pos.y, item, state);
 			}
@@ -605,7 +692,7 @@ fn make_enemy(
 				},
 			],
 		),
-		comps::ShipState { hull: 100. },
+		comps::ShipState { hull: -1. },
 	));
 	Ok(res)
 }
@@ -624,8 +711,10 @@ struct Map
 	player: hecs::Entity,
 	player_pos: Point3<f32>,
 	mouse_entity: Option<hecs::Entity>,
+	dock_entity: Option<hecs::Entity>,
 	buffer_width: f32,
 	buffer_height: f32,
+	mouse_in_buffer: bool,
 }
 
 impl Map
@@ -648,6 +737,8 @@ impl Map
 			mouse_entity: None,
 			buffer_width: state.display_width,
 			buffer_height: state.display_height,
+			mouse_in_buffer: true,
+			dock_entity: None,
 		})
 	}
 
@@ -822,6 +913,33 @@ impl Map
 			}
 		}
 
+		// Mouse hover.
+		let mouse_in_buffer = self.mouse_in_buffer;
+		let mouse_ground_pos = self.get_mouse_ground_pos(state);
+		if mouse_in_buffer
+		{
+			let mouse_entries = grid.query_rect(
+				mouse_ground_pos.zx() - Vector2::new(0.1, 0.1) - center.coords,
+				mouse_ground_pos.zx() + Vector2::new(0.1, 0.1) - center.coords,
+				|_| true,
+			);
+
+			if let Some(entry) = mouse_entries.first()
+			{
+				if let (Ok(pos), Ok(solid), Ok(_)) = (
+					self.world.get::<&comps::Position>(entry.inner.entity),
+					self.world.get::<&comps::Solid>(entry.inner.entity),
+					self.world.get::<&comps::ShipState>(entry.inner.entity),
+				)
+				{
+					if (pos.pos - mouse_ground_pos).magnitude() < solid.size
+					{
+						self.mouse_entity = Some(entry.inner.entity);
+					}
+				}
+			}
+		}
+
 		// Player Input
 		let player_alive = self
 			.world
@@ -829,11 +947,11 @@ impl Map
 			.map(|s| s.hull >= 0.)
 			.unwrap_or(false);
 		let want_move = state.controls.get_action_state(controls::Action::Move) > 0.5;
+		let want_dock = state.controls.get_action_state(controls::Action::Dock) > 0.5;
+		let want_stop = state.controls.get_action_state(controls::Action::Stop) > 0.5;
 		let want_queue = state.controls.get_action_state(controls::Action::Queue) > 0.5;
 		let want_action_1 = state.controls.get_action_state(controls::Action::Action1) > 0.5;
-		let mouse_ground_pos = self.get_mouse_ground_pos(state);
-		let mouse_in_buffer = (state.mouse_pos.x as f32) < self.buffer_width;
-		if want_move && mouse_in_buffer && player_alive
+		if want_move && mouse_in_buffer && player_alive && self.dock_entity.is_none()
 		{
 			state.controls.clear_action_state(controls::Action::Move);
 			let marker = make_target(mouse_ground_pos, &mut self.world, state)?;
@@ -859,6 +977,13 @@ impl Map
 				self.world.despawn(marker)?;
 			}
 		}
+		if want_stop && player_alive
+		{
+			if let Ok(mut target) = self.world.get::<&mut comps::Target>(self.player)
+			{
+				target.clear(|m| to_die.push(m));
+			}
+		}
 		if want_action_1 && mouse_in_buffer && player_alive
 		{
 			if let Ok(mut equipment) = self.world.get::<&mut comps::Equipment>(self.player)
@@ -867,27 +992,23 @@ impl Map
 				equipment.target_pos = mouse_ground_pos;
 			}
 		}
-
-		// Mouse hover.
-		if mouse_in_buffer
+		if want_dock && player_alive && self.mouse_entity != Some(self.player)
 		{
-			let mouse_entries = grid.query_rect(
-				mouse_ground_pos.zx() - Vector2::new(0.1, 0.1) - center.coords,
-				mouse_ground_pos.zx() + Vector2::new(0.1, 0.1) - center.coords,
-				|_| true,
-			);
-
-			if let Some(entry) = mouse_entries.first()
+			state.controls.clear_action_state(controls::Action::Dock);
+			self.dock_entity = None;
+			if let Some(mouse_entity) = self.mouse_entity
 			{
-				if let (Ok(pos), Ok(solid), Ok(_)) = (
-					self.world.get::<&comps::Position>(entry.inner.entity),
-					self.world.get::<&comps::Solid>(entry.inner.entity),
-					self.world.get::<&comps::ShipState>(entry.inner.entity),
+				if let (Ok(player_pos), Ok(pos), Ok(_), Ok(ship_state)) = (
+					self.world.get::<&comps::Position>(self.player),
+					self.world.get::<&comps::Position>(mouse_entity),
+					self.world.get::<&comps::Equipment>(mouse_entity),
+					self.world.get::<&comps::ShipState>(mouse_entity),
 				)
 				{
-					if (pos.pos - mouse_ground_pos).magnitude() < solid.size
+					if (player_pos.pos.zx() - pos.pos.zx()).magnitude() < 10.0
+						&& ship_state.hull < 0.
 					{
-						self.mouse_entity = Some(entry.inner.entity);
+						self.dock_entity = Some(mouse_entity);
 					}
 				}
 			}
@@ -1171,7 +1292,7 @@ impl Map
 		let project = self.make_project();
 		state
 			.core
-			.use_projection_transform(&utils::mat4_to_transform(project.into_inner()));
+			.use_projection_transform(&utils::mat4_to_transform(project.to_homogeneous()));
 
 		let camera = self.make_camera();
 

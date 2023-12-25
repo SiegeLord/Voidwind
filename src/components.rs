@@ -192,7 +192,7 @@ impl Equipment
 		for i in 0..inventory_size
 		{
 			let x = (i as i32 % 4) as f32 - 1.5;
-			let y = (i as i32 / 4) as f32 - 4.;
+			let y = (i as i32 / 4) as f32 - 3.;
 			slots.push(ItemSlot {
 				item: None,
 				pos: Point2::new(y, x),

@@ -265,3 +265,42 @@ pub enum Team
 	French,
 	Neutral,
 }
+
+impl Team
+{
+	pub fn is_enemy(&self, other: &Team) -> bool
+	{
+		if *self == Team::Neutral || *other == Team::Neutral
+		{
+			false
+		}
+		else
+		{
+			*self != *other
+		}
+	}
+
+	pub fn trade_with(&self, other: &Team) -> bool
+	{
+		if *self == Team::Neutral || *other == Team::Neutral
+		{
+			false
+		}
+		else
+		{
+			*self == *other
+		}
+	}
+
+	pub fn dock_with(&self, other: &Team) -> bool
+	{
+		if *self == Team::Neutral || *other == Team::Neutral
+		{
+			true
+		}
+		else
+		{
+			*self == *other
+		}
+	}
+}

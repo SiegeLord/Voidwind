@@ -315,7 +315,7 @@ impl EquipmentScreen
 		false
 	}
 
-	fn is_friend(&self, map: &Map) -> bool
+	fn do_trade(&self, map: &Map) -> bool
 	{
 		let dock_team = map.dock_entity.and_then(|dock_entity| {
 			map.world
@@ -331,7 +331,7 @@ impl EquipmentScreen
 
 		if let (Some(dock_team), Some(player_team)) = (dock_team, player_team)
 		{
-			dock_team == player_team && (player_team != comps::Team::Neutral)
+			dock_team.trade_with(&player_team)
 		}
 		else
 		{
@@ -341,7 +341,7 @@ impl EquipmentScreen
 
 	fn logic(&mut self, map: &mut Map, state: &game_state::GameState) -> bool
 	{
-		let is_friend = self.is_friend(map);
+		let do_trade = self.do_trade(map);
 		let mouse_pos = Point2::new(state.mouse_pos.x as f32, state.mouse_pos.y as f32);
 		self.hover_slot = None;
 		let mut old_item = None;
@@ -358,7 +358,7 @@ impl EquipmentScreen
 					(equipment.slots.iter_mut().map(|slot| (1, slot)).enumerate())
 						.chain(dock_slots.map(|slot| (0, slot)).enumerate())
 				{
-					if is_friend && equipment_idx == 0 && !slot.is_inventory
+					if do_trade && equipment_idx == 0 && !slot.is_inventory
 					{
 						continue;
 					}
@@ -493,7 +493,7 @@ impl EquipmentScreen
 			self.buffer_height / 2.,
 			Color::from_rgb_f(0.1, 0.1, 0.2),
 		);
-		let is_friend = self.is_friend(map);
+		let do_trade = self.do_trade(map);
 		let mouse_pos = Point2::new(state.mouse_pos.x as f32, state.mouse_pos.y as f32);
 
 		let mut dock_equipment = map
@@ -507,7 +507,7 @@ impl EquipmentScreen
 				(equipment.slots.iter_mut().map(|slot| (1, slot)).enumerate())
 					.chain(dock_slots.map(|slot| (0, slot)).enumerate())
 			{
-				if is_friend && equipment_idx == 0 && !slot.is_inventory
+				if do_trade && equipment_idx == 0 && !slot.is_inventory
 				{
 					continue;
 				}
@@ -737,7 +737,7 @@ fn make_player(
 }
 
 fn make_enemy(
-	pos: Point3<f32>, world: &mut hecs::World, state: &mut game_state::GameState,
+	pos: Point3<f32>, team: comps::Team, world: &mut hecs::World, state: &mut game_state::GameState,
 ) -> Result<hecs::Entity>
 {
 	let mesh = "data/test.glb";
@@ -802,8 +802,15 @@ fn make_enemy(
 			],
 		),
 		comps::ShipState {
-			hull: 20.,
-			team: comps::Team::French,
+			hull: if team == comps::Team::English
+			{
+				100.
+			}
+			else
+			{
+				20.
+			},
+			team: team,
 		},
 	));
 	Ok(res)
@@ -838,8 +845,18 @@ impl Map
 
 		let player = make_player(Point3::new(0., 0., 0.), &mut world, state)?;
 
-		make_enemy(Point3::new(30., 0., 0.), &mut world, state)?;
-		make_enemy(Point3::new(30., 0., 10.), &mut world, state)?;
+		make_enemy(
+			Point3::new(30., 0., 0.),
+			comps::Team::English,
+			&mut world,
+			state,
+		)?;
+		make_enemy(
+			Point3::new(30., 0., 10.),
+			comps::Team::French,
+			&mut world,
+			state,
+		)?;
 
 		Ok(Self {
 			world: world,
@@ -1127,8 +1144,7 @@ impl Map
 				)
 				{
 					if (player_pos.pos.zx() - pos.pos.zx()).magnitude() < 10.0
-						&& (ship_state.team == comps::Team::Neutral
-							|| ship_state.team == player_ship_state.team)
+						&& ship_state.team.dock_with(&player_ship_state.team)
 					{
 						player_target.clear(|m| to_die.push(m));
 						self.dock_entity = Some(mouse_entity);
@@ -1305,15 +1321,41 @@ impl Map
 			{
 				comps::AIState::Idle =>
 				{
-					let diff = pos.pos - self.player_pos;
-					if diff.magnitude() < 30.
+					let sense_radius = 30.;
+					let entries = grid.query_rect(
+						pos.pos.zx() - Vector2::new(sense_radius, sense_radius) - center.coords,
+						pos.pos.zx() + Vector2::new(sense_radius, sense_radius) - center.coords,
+						|other| {
+							if other.inner.entity == id
+							{
+								return false;
+							}
+							if let (Ok(other_pos), Ok(other_ship_state)) = (
+								self.world.get::<&comps::Position>(other.inner.entity),
+								self.world.get::<&comps::ShipState>(other.inner.entity),
+							)
+							{
+								(pos.pos - other_pos.pos).magnitude() < sense_radius
+									&& other_ship_state.team.is_enemy(&ship_state.team)
+							}
+							else
+							{
+								false
+							}
+						},
+					);
+					if let Some(entry) = entries.first()
 					{
-						ai.state = comps::AIState::Pursuing(self.player);
+						ai.state = comps::AIState::Pursuing(entry.inner.entity);
 					}
 				}
 				comps::AIState::Pursuing(target_entity) =>
 				{
-					if !self.world.contains(target_entity)
+					if self
+						.world
+						.get::<&comps::ShipState>(target_entity)
+						.map(|other_ship_state| !other_ship_state.team.is_enemy(&ship_state.team))
+						.unwrap_or(false)
 					{
 						ai.state = comps::AIState::Idle;
 					}
@@ -1342,7 +1384,11 @@ impl Map
 				}
 				comps::AIState::Attacking(target_entity) =>
 				{
-					if !self.world.contains(target_entity)
+					if self
+						.world
+						.get::<&comps::ShipState>(target_entity)
+						.map(|other_ship_state| !other_ship_state.team.is_enemy(&ship_state.team))
+						.unwrap_or(false)
 					{
 						ai.state = comps::AIState::Idle;
 						equipment.want_action_1 = false;

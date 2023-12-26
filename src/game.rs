@@ -16,7 +16,57 @@ use std::collections::HashMap;
 
 use std::f32::consts::PI;
 
+static CELL_SIZE: i32 = 64;
+static CELL_RADIUS: i32 = 2;
 const SLOT_WIDTH: f32 = 32.;
+
+#[derive(Clone)]
+pub struct Cell
+{
+	center: Point2<i32>,
+}
+
+impl Cell
+{
+	fn new(
+		center: Point2<i32>, world: &mut hecs::World, state: &mut game_state::GameState,
+	) -> Result<Self>
+	{
+		let world_center = Point3::new(
+			(center.x * CELL_SIZE) as f32,
+			0.,
+			(center.y * CELL_SIZE) as f32,
+		);
+
+		dbg!(world_center);
+
+		make_enemy(world_center, comps::Team::French, world, state)?;
+
+		Ok(Self { center: center })
+	}
+
+	pub fn world_center(&self) -> Point3<f32>
+	{
+		Point3::new(
+			(self.center.x * CELL_SIZE) as f32,
+			0.,
+			(self.center.y * CELL_SIZE) as f32,
+		)
+	}
+
+	pub fn world_to_cell(pos: &Point3<f32>) -> Point2<i32>
+	{
+		let sz = CELL_SIZE as f32;
+		let x = pos.x + sz / 2.;
+		let y = pos.z + sz / 2.;
+		Point2::new((x / sz).floor() as i32, (y / sz).floor() as i32)
+	}
+
+	pub fn contains(&self, pos: &Point3<f32>) -> bool
+	{
+		self.center == Cell::world_to_cell(pos)
+	}
+}
 
 pub struct Game
 {
@@ -834,6 +884,7 @@ struct Map
 	buffer_width: f32,
 	buffer_height: f32,
 	mouse_in_buffer: bool,
+	cells: Vec<Cell>,
 }
 
 impl Map
@@ -843,20 +894,16 @@ impl Map
 		let rng = StdRng::seed_from_u64(thread_rng().gen::<u16>() as u64);
 		let mut world = hecs::World::new();
 
-		let player = make_player(Point3::new(0., 0., 0.), &mut world, state)?;
+		let player = make_player(Point3::new(30., 0., 0.), &mut world, state)?;
 
-		make_enemy(
-			Point3::new(30., 0., 0.),
-			comps::Team::English,
-			&mut world,
-			state,
-		)?;
-		make_enemy(
-			Point3::new(30., 0., 10.),
-			comps::Team::French,
-			&mut world,
-			state,
-		)?;
+		let mut cells = vec![];
+		for y in -CELL_RADIUS..=CELL_RADIUS
+		{
+			for x in -CELL_RADIUS..=CELL_RADIUS
+			{
+				cells.push(Cell::new(Point2::new(x, y), &mut world, state)?);
+			}
+		}
 
 		Ok(Self {
 			world: world,
@@ -868,6 +915,7 @@ impl Map
 			buffer_height: state.display_height,
 			mouse_in_buffer: true,
 			dock_entity: None,
+			cells: cells,
 		})
 	}
 
@@ -899,6 +947,66 @@ impl Map
 	{
 		let mut to_die = vec![];
 		let dt = utils::DT as f32;
+
+		// Cell changes
+		let mut new_cell_centers = vec![];
+		let player_cell = Cell::world_to_cell(&self.player_pos);
+		let mut good_cells = vec![];
+
+		for cell in &self.cells
+		{
+			let disp = cell.center - player_cell;
+			if disp.x.abs() > CELL_RADIUS || disp.y.abs() > CELL_RADIUS
+			{
+				for (id, position) in self.world.query::<&comps::Position>().iter()
+				{
+					if cell.contains(&position.pos)
+					{
+						to_die.push(id);
+						println!("Killed {:?} {}", id, cell.center);
+					}
+				}
+			}
+			else
+			{
+				good_cells.push(cell.clone())
+			}
+		}
+
+		self.cells.clear();
+
+		for dy in -CELL_RADIUS..=CELL_RADIUS
+		{
+			for dx in -CELL_RADIUS..=CELL_RADIUS
+			{
+				let cell_center = player_cell + Vector2::new(dx, dy);
+
+				let mut found = false;
+				for cell in &good_cells
+				{
+					if cell.center == cell_center
+					{
+						self.cells.push(cell.clone());
+						found = true;
+						break;
+					}
+				}
+
+				if !found
+				{
+					new_cell_centers.push(cell_center);
+					println!("New cell {}", cell_center);
+				}
+			}
+		}
+
+		new_cell_centers.shuffle(&mut self.rng);
+
+		for cell_center in new_cell_centers
+		{
+			self.cells
+				.push(Cell::new(cell_center, &mut self.world, state)?);
+		}
 
 		// Collision.
 		let center = self.player_pos.zx();
@@ -1347,6 +1455,14 @@ impl Map
 					if let Some(entry) = entries.first()
 					{
 						ai.state = comps::AIState::Pursuing(entry.inner.entity);
+					}
+					else if target.waypoints.is_empty()
+					{
+						let cell_id = (0..self.cells.len()).choose(&mut self.rng).unwrap();
+						target.waypoints.push(comps::Waypoint {
+							pos: self.cells[cell_id].world_center(),
+							marker: None,
+						});
 					}
 				}
 				comps::AIState::Pursuing(target_entity) =>

@@ -707,7 +707,7 @@ fn make_player(
 	pos: Point3<f32>, world: &mut hecs::World, state: &mut game_state::GameState,
 ) -> Result<hecs::Entity>
 {
-	let mesh = "data/test.glb";
+	let mesh = "data/small_ship.glb";
 	game_state::cache_mesh(state, mesh)?;
 	let equipment = comps::Equipment::new(
 		8,
@@ -790,7 +790,7 @@ fn make_enemy(
 	pos: Point3<f32>, team: comps::Team, world: &mut hecs::World, state: &mut game_state::GameState,
 ) -> Result<hecs::Entity>
 {
-	let mesh = "data/test.glb";
+	let mesh = "data/small_ship.glb";
 	game_state::cache_mesh(state, mesh)?;
 	let res = world.spawn((
 		comps::Position { pos: pos, dir: 0. },
@@ -879,6 +879,7 @@ struct Map
 	rng: StdRng,
 	player: hecs::Entity,
 	player_pos: Point3<f32>,
+    zoom: f32,
 	mouse_entity: Option<hecs::Entity>,
 	dock_entity: Option<hecs::Entity>,
 	buffer_width: f32,
@@ -916,17 +917,18 @@ impl Map
 			mouse_in_buffer: true,
 			dock_entity: None,
 			cells: cells,
+            zoom: 1.,
 		})
 	}
 
 	fn make_project(&self) -> Perspective3<f32>
 	{
-		utils::projection_transform(self.buffer_width, self.buffer_height)
+		utils::projection_transform(self.buffer_width, self.buffer_height, PI / 2.)
 	}
 
 	fn make_camera(&self) -> Isometry3<f32>
 	{
-		let height = 30.;
+		let height = 30. / self.zoom;
 		utils::make_camera(
 			self.player_pos + Vector3::new(0., height, height / 2.),
 			self.player_pos,
@@ -1188,6 +1190,8 @@ impl Map
 		let want_stop = state.controls.get_action_state(controls::Action::Stop) > 0.5;
 		let want_queue = state.controls.get_action_state(controls::Action::Queue) > 0.5;
 		let want_action_1 = state.controls.get_action_state(controls::Action::Action1) > 0.5;
+        let want_zoom_in = state.controls.get_action_state(controls::Action::ZoomIn) > 0.5;
+        let want_zoom_out = state.controls.get_action_state(controls::Action::ZoomOut) > 0.5;
 		if want_move && mouse_in_buffer && player_alive && self.dock_entity.is_none()
 		{
 			state.controls.clear_action_state(controls::Action::Move);
@@ -1267,6 +1271,14 @@ impl Map
 				}
 			}
 		}
+        if want_zoom_in
+        {
+            self.zoom *= 1.25;
+        }
+        if want_zoom_out
+        {
+            self.zoom /= 1.25;
+        }
 
 		// Equipment actions
 		let mut spawn_projectiles = vec![];
@@ -1647,6 +1659,10 @@ impl Map
 			state.core.use_transform(&utils::mat4_to_transform(
 				camera.to_homogeneous() * shift.to_homogeneous(),
 			));
+			state.core.set_shader_transform(
+				"model_matrix",
+				&utils::mat4_to_transform(shift.to_homogeneous()),
+			).ok();
 
 			state
 				.get_mesh(&mesh.mesh)

@@ -57,7 +57,7 @@ impl MultiMesh
 								y: pos[1],
 								z: pos[2],
 								u: uv[0],
-								v: uv[1],
+								v: 1. - uv[1],
 								nx: normal[0],
 								ny: normal[1],
 								nz: normal[2],

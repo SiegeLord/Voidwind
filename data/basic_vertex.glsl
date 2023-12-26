@@ -6,11 +6,12 @@ layout(location = 3) in vec3 al_user_attr_0;  // normal
 varying vec4 varying_color;
 varying vec2 varying_texcoord;
 uniform mat4 al_projview_matrix;
+uniform mat4 model_matrix;
 
 void main()
 {
-   vec3 normal = al_user_attr_0;
-   float f = dot(normal, normalize(vec3(1.0, 1.0, 1.0)));
+   vec3 normal = mat3(model_matrix) * al_user_attr_0;
+   float f = 0.5 + 0.5 * max(0., dot(normal, normalize(vec3(1.0, 1.0, 1.0))));
    varying_color = al_color * vec4(f, f, f, 1.0);
    varying_texcoord = al_texcoord;
    gl_Position = al_projview_matrix * al_pos;

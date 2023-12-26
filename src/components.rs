@@ -192,10 +192,10 @@ impl Equipment
 		for i in 0..inventory_size
 		{
 			let x = (i as i32 % 4) as f32 - 1.5;
-			let y = (i as i32 / 4) as f32 - 3.;
+			let y = (i as i32 / 4) as f32 + 2.;
 			slots.push(ItemSlot {
 				item: None,
-				pos: Point2::new(y, x),
+				pos: Point2::new(-y, -x),
 				dir: None,
 				is_inventory: true,
 			})
@@ -247,6 +247,7 @@ pub struct OnContactEffect
 pub struct ShipState
 {
 	pub hull: f32,
+	pub team: Team,
 }
 
 impl ShipState
@@ -255,4 +256,12 @@ impl ShipState
 	{
 		self.hull -= damage.damage;
 	}
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Team
+{
+	English,
+	French,
+	Neutral,
 }

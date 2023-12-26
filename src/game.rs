@@ -49,7 +49,16 @@ impl Game
 
 			if want_inventory
 			{
-				if self.equipment_screen.is_none()
+				if self.equipment_screen.is_some()
+				{
+					self.equipment_screen
+						.as_mut()
+						.unwrap()
+						.finish_trade(&mut self.map);
+					self.equipment_screen = None;
+					self.map.dock_entity = None;
+				}
+				else
 				{
 					self.equipment_screen = Some(EquipmentScreen::new(state));
 				}
@@ -117,7 +126,7 @@ impl Game
 							self.equipment_screen
 								.as_mut()
 								.unwrap()
-								.return_item(&mut self.map);
+								.finish_trade(&mut self.map);
 							self.equipment_screen = None;
 							self.map.dock_entity = None;
 						}
@@ -221,6 +230,7 @@ struct EquipmentScreen
 	buffer_width: f32,
 	buffer_height: f32,
 	mouse_button_down: bool,
+	ctrl_down: bool,
 
 	// Source slot, equipment_idx
 	hover_slot: Option<(usize, i32)>,
@@ -238,6 +248,7 @@ impl EquipmentScreen
 			hover_slot: None,
 			dragged_item: None,
 			mouse_button_down: false,
+			ctrl_down: false,
 		}
 	}
 
@@ -274,7 +285,6 @@ impl EquipmentScreen
 				if self.over_ui(map, state)
 				{
 					self.mouse_button_down = true;
-					dbg!(self.mouse_button_down);
 					return true;
 				}
 			}
@@ -282,13 +292,56 @@ impl EquipmentScreen
 			{
 				self.mouse_button_down = false;
 			}
+			Event::KeyDown {
+				keycode: KeyCode::LCtrl | KeyCode::RCtrl,
+				..
+			} =>
+			{
+				if self.over_ui(map, state)
+				{
+					self.ctrl_down = true;
+					return true;
+				}
+			}
+			Event::KeyUp {
+				keycode: KeyCode::LCtrl | KeyCode::RCtrl,
+				..
+			} =>
+			{
+				self.ctrl_down = false;
+			}
 			_ => (),
 		}
 		false
 	}
 
+	fn is_friend(&self, map: &Map) -> bool
+	{
+		let dock_team = map.dock_entity.and_then(|dock_entity| {
+			map.world
+				.get::<&comps::ShipState>(dock_entity)
+				.map(|ss| ss.team)
+				.ok()
+		});
+		let player_team = map
+			.world
+			.get::<&comps::ShipState>(map.player)
+			.map(|ss| ss.team)
+			.ok();
+
+		if let (Some(dock_team), Some(player_team)) = (dock_team, player_team)
+		{
+			dock_team == player_team && (player_team != comps::Team::Neutral)
+		}
+		else
+		{
+			false
+		}
+	}
+
 	fn logic(&mut self, map: &mut Map, state: &game_state::GameState) -> bool
 	{
+		let is_friend = self.is_friend(map);
 		let mouse_pos = Point2::new(state.mouse_pos.x as f32, state.mouse_pos.y as f32);
 		self.hover_slot = None;
 		let mut old_item = None;
@@ -298,12 +351,18 @@ impl EquipmentScreen
 				.dock_entity
 				.and_then(|dock_entity| map.world.get::<&mut comps::Equipment>(dock_entity).ok());
 			let dock_slots = dock_equipment.iter_mut().flat_map(|eq| eq.slots.iter_mut());
+			let mut fast_move = false;
 			if let Ok(mut equipment) = map.world.get::<&mut comps::Equipment>(map.player)
 			{
 				for (i, (equipment_idx, slot)) in
 					(equipment.slots.iter_mut().map(|slot| (1, slot)).enumerate())
 						.chain(dock_slots.map(|slot| (0, slot)).enumerate())
 				{
+					if is_friend && equipment_idx == 0 && !slot.is_inventory
+					{
+						continue;
+					}
+
 					let pos = self.get_slot_pos(equipment_idx, slot.pos);
 					let w = SLOT_WIDTH;
 					if mouse_pos.x > pos.x - w / 2.
@@ -315,6 +374,10 @@ impl EquipmentScreen
 						{
 							self.dragged_item =
 								slot.item.take().map(|item| (i, equipment_idx, item));
+							if self.ctrl_down
+							{
+								fast_move = true;
+							}
 						}
 						else if !self.mouse_button_down && self.dragged_item.is_some()
 						{
@@ -342,9 +405,47 @@ impl EquipmentScreen
 					{
 						equipment.slots[i].item = Some(item);
 					}
-					else if let Some(mut dock_equipment) = dock_equipment
+					else if let Some(dock_equipment) = dock_equipment.as_mut()
 					{
 						dock_equipment.slots[i].item = Some(item);
+					}
+				}
+				if fast_move
+				{
+					let mut moved = false;
+					if let Some((_, equipment_idx, item)) = self.dragged_item.as_ref()
+					{
+						if *equipment_idx == 1
+						{
+							if let Some(dock_equipment) = dock_equipment.as_mut()
+							{
+								for slot in &mut dock_equipment.slots
+								{
+									if slot.is_inventory && slot.item.is_none()
+									{
+										slot.item = Some(item.clone());
+										moved = true;
+										break;
+									}
+								}
+							}
+						}
+						else
+						{
+							for slot in &mut equipment.slots
+							{
+								if slot.is_inventory && slot.item.is_none()
+								{
+									slot.item = Some(item.clone());
+									moved = true;
+									break;
+								}
+							}
+						}
+					}
+					if moved
+					{
+						self.dragged_item = None;
 					}
 				}
 			}
@@ -352,7 +453,7 @@ impl EquipmentScreen
 		!self.over_ui(map, state)
 	}
 
-	fn return_item(&mut self, map: &Map)
+	fn finish_trade(&mut self, map: &Map)
 	{
 		let dock_equipment = map
 			.dock_entity
@@ -392,6 +493,7 @@ impl EquipmentScreen
 			self.buffer_height / 2.,
 			Color::from_rgb_f(0.1, 0.1, 0.2),
 		);
+		let is_friend = self.is_friend(map);
 		let mouse_pos = Point2::new(state.mouse_pos.x as f32, state.mouse_pos.y as f32);
 
 		let mut dock_equipment = map
@@ -405,6 +507,10 @@ impl EquipmentScreen
 				(equipment.slots.iter_mut().map(|slot| (1, slot)).enumerate())
 					.chain(dock_slots.map(|slot| (0, slot)).enumerate())
 			{
+				if is_friend && equipment_idx == 0 && !slot.is_inventory
+				{
+					continue;
+				}
 				let pos = self.get_slot_pos(equipment_idx, slot.pos);
 				if let Some(item) = &slot.item
 				{
@@ -622,7 +728,10 @@ fn make_player(
 			parent: None,
 		},
 		equipment,
-		comps::ShipState { hull: 100. },
+		comps::ShipState {
+			hull: 100.,
+			team: comps::Team::English,
+		},
 	));
 	Ok(res)
 }
@@ -692,7 +801,10 @@ fn make_enemy(
 				},
 			],
 		),
-		comps::ShipState { hull: -1. },
+		comps::ShipState {
+			hull: 20.,
+			team: comps::Team::French,
+		},
 	));
 	Ok(res)
 }
@@ -944,7 +1056,7 @@ impl Map
 		let player_alive = self
 			.world
 			.get::<&comps::ShipState>(self.player)
-			.map(|s| s.hull >= 0.)
+			.map(|s| s.hull > 0.)
 			.unwrap_or(false);
 		let want_move = state.controls.get_action_state(controls::Action::Move) > 0.5;
 		let want_dock = state.controls.get_action_state(controls::Action::Dock) > 0.5;
@@ -998,17 +1110,35 @@ impl Map
 			self.dock_entity = None;
 			if let Some(mouse_entity) = self.mouse_entity
 			{
-				if let (Ok(player_pos), Ok(pos), Ok(_), Ok(ship_state)) = (
+				if let (
+					Ok(player_pos),
+					Ok(mut player_target),
+					Ok(player_ship_state),
+					Ok(pos),
+					Ok(_),
+					Ok(ship_state),
+				) = (
 					self.world.get::<&comps::Position>(self.player),
+					self.world.get::<&mut comps::Target>(self.player),
+					self.world.get::<&comps::ShipState>(self.player),
 					self.world.get::<&comps::Position>(mouse_entity),
 					self.world.get::<&comps::Equipment>(mouse_entity),
 					self.world.get::<&comps::ShipState>(mouse_entity),
 				)
 				{
 					if (player_pos.pos.zx() - pos.pos.zx()).magnitude() < 10.0
-						&& ship_state.hull < 0.
+						&& (ship_state.team == comps::Team::Neutral
+							|| ship_state.team == player_ship_state.team)
 					{
+						player_target.clear(|m| to_die.push(m));
 						self.dock_entity = Some(mouse_entity);
+					}
+				}
+				if let Some(dock_entity) = self.dock_entity
+				{
+					if let Ok(mut target) = self.world.get::<&mut comps::Target>(dock_entity)
+					{
+						target.clear(|m| to_die.push(m));
 					}
 				}
 			}
@@ -1156,7 +1286,7 @@ impl Map
 		}
 
 		// AI
-		for (_id, (pos, target, ai, equipment, ship_state)) in self
+		for (id, (pos, target, ai, equipment, ship_state)) in self
 			.world
 			.query::<(
 				&comps::Position,
@@ -1167,7 +1297,7 @@ impl Map
 			)>()
 			.iter()
 		{
-			if ship_state.hull < 0.
+			if ship_state.hull <= 0.
 			{
 				continue;
 			}
@@ -1200,7 +1330,7 @@ impl Map
 						{
 							ai.state = comps::AIState::Idle;
 						}
-						else
+						else if Some(id) != self.dock_entity
 						{
 							target.clear(|m| to_die.push(m));
 							target.waypoints.push(comps::Waypoint {
@@ -1228,7 +1358,7 @@ impl Map
 						}
 						else
 						{
-							if target.waypoints.is_empty()
+							if target.waypoints.is_empty() && Some(id) != self.dock_entity
 							{
 								let theta = [-PI / 3., PI / 3.].choose(&mut self.rng).unwrap();
 								let rot = Rotation2::new(*theta);
@@ -1249,11 +1379,12 @@ impl Map
 		// Hull death
 		for (_, (target, ship_state)) in self
 			.world
-			.query_mut::<(&mut comps::Target, &comps::ShipState)>()
+			.query_mut::<(&mut comps::Target, &mut comps::ShipState)>()
 		{
-			if ship_state.hull < 0.
+			if ship_state.hull <= 0.
 			{
 				target.clear(|m| to_die.push(m));
+				ship_state.team = comps::Team::Neutral;
 			}
 		}
 

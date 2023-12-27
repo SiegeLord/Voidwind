@@ -67,6 +67,10 @@ pub enum AIState
 	Idle,
 	Pursuing(hecs::Entity),
 	Attacking(hecs::Entity),
+	Pause
+	{
+		time_to_unpause: f64,
+	},
 }
 
 #[derive(Clone, Debug)]
@@ -233,6 +237,7 @@ pub struct CollidesWithWater;
 pub struct Damage
 {
 	pub damage: f32,
+	pub team: Team,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -255,14 +260,41 @@ pub struct OnContactEffect
 pub struct ShipState
 {
 	pub hull: f32,
+	pub crew: i32,
 	pub team: Team,
 }
 
 impl ShipState
 {
-	pub fn damage(&mut self, damage: &Damage)
+	pub fn damage(&mut self, damage: &Damage) -> bool
 	{
-		self.hull -= damage.damage;
+		if damage.team.can_damage(&self.team)
+		{
+			self.hull -= damage.damage;
+			self.crew -= 1;
+			self.hull = self.hull.max(0.);
+			self.crew = self.crew.max(0);
+			true
+		}
+		else
+		{
+			false
+		}
+	}
+
+	pub fn is_active(&self) -> bool
+	{
+		self.is_structurally_sound() && self.has_crew()
+	}
+
+	pub fn is_structurally_sound(&self) -> bool
+	{
+		self.hull > 0.
+	}
+
+	pub fn has_crew(&self) -> bool
+	{
+		self.crew > 0
 	}
 }
 
@@ -310,5 +342,10 @@ impl Team
 		{
 			*self == *other
 		}
+	}
+
+	pub fn can_damage(&self, other: &Team) -> bool
+	{
+		*self != *other
 	}
 }

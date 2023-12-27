@@ -21,6 +21,82 @@ static CELL_RADIUS: i32 = 2;
 const SLOT_WIDTH: f32 = 32.;
 
 #[derive(Clone)]
+pub struct Button
+{
+	loc: Point2<f32>,
+	size: Vector2<f32>,
+	text: String,
+	on: bool,
+	hover: bool,
+}
+
+impl Button
+{
+	fn new(loc: Point2<f32>, size: Vector2<f32>, text: String) -> Self
+	{
+		Self {
+			loc: loc,
+			size: size,
+			text: text,
+			on: false,
+			hover: false,
+		}
+	}
+
+	fn logic(&mut self) -> bool
+	{
+		let old_on = self.on;
+		self.on = false;
+		old_on
+	}
+
+	fn draw(&self, state: &game_state::GameState)
+	{
+		let color = if self.hover
+		{
+			Color::from_rgba_f(1.0, 1.0, 1.0, 1.0)
+		}
+		else
+		{
+			Color::from_rgba_f(0.5, 0.5, 0.5, 1.0)
+		};
+		state.core.draw_text(
+			&state.ui_font,
+			color,
+			self.loc.x,
+			self.loc.y,
+			FontAlign::Centre,
+			&self.text,
+		);
+	}
+
+	fn input(&mut self, event: &Event)
+	{
+		let start = self.loc - self.size / 2.;
+		let end = self.loc + self.size / 2.;
+		match event
+		{
+			Event::MouseButtonDown {
+				button: 1, x, y, ..
+			} =>
+			{
+				let (x, y) = (*x as f32, *y as f32);
+				if x > start.x && x < end.x && y < end.y && y > start.y
+				{
+					self.on = true;
+				}
+			}
+			Event::MouseAxes { x, y, .. } =>
+			{
+				let (x, y) = (*x as f32, *y as f32);
+				self.hover = x > start.x && x < end.x && y < end.y && y > start.y;
+			}
+			_ => (),
+		}
+	}
+}
+
+#[derive(Clone)]
 pub struct Cell
 {
 	center: Point2<i32>,
@@ -41,7 +117,7 @@ impl Cell
 
 		dbg!(world_center);
 
-		make_enemy(
+		let ship = make_ship(
 			world_center,
 			*[comps::Team::English, comps::Team::French]
 				.choose(rng)
@@ -49,6 +125,14 @@ impl Cell
 			world,
 			state,
 		)?;
+
+		world.insert_one(
+			ship,
+			comps::AI {
+				state: comps::AIState::Idle,
+			},
+		)?;
+		world.get::<&mut comps::ShipState>(ship).unwrap().crew = 0;
 
 		Ok(Self { center: center })
 	}
@@ -294,6 +378,8 @@ struct EquipmentScreen
 	hover_slot: Option<(usize, i32)>,
 	// Source slot, equipment_idx, item
 	dragged_item: Option<(usize, i32, comps::Item)>,
+
+	switch_ships: Option<Button>,
 }
 
 impl EquipmentScreen
@@ -307,6 +393,7 @@ impl EquipmentScreen
 			dragged_item: None,
 			mouse_button_down: false,
 			ctrl_down: false,
+			switch_ships: None,
 		}
 	}
 
@@ -336,6 +423,10 @@ impl EquipmentScreen
 
 	fn input(&mut self, event: &Event, map: &mut Map, state: &mut game_state::GameState) -> bool
 	{
+		if let Some(button) = self.switch_ships.as_mut()
+		{
+			button.input(event);
+		}
 		match *event
 		{
 			Event::MouseButtonDown { button: 1, .. } =>
@@ -399,18 +490,47 @@ impl EquipmentScreen
 
 	fn logic(&mut self, map: &mut Map, state: &game_state::GameState) -> bool
 	{
+		if map.dock_entity.is_some() && self.switch_ships.is_none()
+		{
+			self.switch_ships = Some(Button::new(
+				Point2::new(state.display_width / 3. - 64., 64.),
+				Vector2::new(64., 64.),
+				"Switch".into(),
+			));
+		}
+		else if map.dock_entity.is_none()
+		{
+			self.switch_ships = None;
+		}
+		let do_switch = if let Some(button) = self.switch_ships.as_mut()
+		{
+			button.logic()
+		}
+		else
+		{
+			false
+		};
 		let do_trade = self.do_trade(map);
 		let mouse_pos = Point2::new(state.mouse_pos.x as f32, state.mouse_pos.y as f32);
 		self.hover_slot = None;
 		let mut old_item = None;
+		let over_ui = self.over_ui(map, state);
+
+		let mut query = map.world.query::<&mut comps::Equipment>();
+		let mut view = query.view();
+		let [mut dock_equipment, player_equipment] = if let Some(dock_entity) = map.dock_entity
+		{
+			view.get_mut_n([dock_entity, map.player])
+		}
+		else
+		{
+			[None, view.get_mut(map.player)]
+		};
 
 		{
-			let mut dock_equipment = map
-				.dock_entity
-				.and_then(|dock_entity| map.world.get::<&mut comps::Equipment>(dock_entity).ok());
 			let dock_slots = dock_equipment.iter_mut().flat_map(|eq| eq.slots.iter_mut());
 			let mut fast_move = false;
-			if let Ok(mut equipment) = map.world.get::<&mut comps::Equipment>(map.player)
+			if let Some(equipment) = player_equipment
 			{
 				for (i, (equipment_idx, slot)) in
 					(equipment.slots.iter_mut().map(|slot| (1, slot)).enumerate())
@@ -537,16 +657,47 @@ impl EquipmentScreen
 				}
 			}
 		}
-		!self.over_ui(map, state)
+		if do_switch
+		{
+			let mut query = map.world.query::<&mut comps::ShipState>();
+			let mut view = query.view();
+			let [mut dock_state, mut player_state] =
+				view.get_mut_n([map.dock_entity.unwrap(), map.player]);
+			if let (Some(dock_state), Some(player_state)) =
+				(dock_state.as_mut(), player_state.as_mut())
+			{
+				let player_crew = player_state.crew;
+				player_state.crew = dock_state.crew;
+				dock_state.crew = player_crew;
+
+				let player_team = player_state.team;
+				player_state.team = dock_state.team;
+				dock_state.team = player_team;
+			}
+
+			let player = map.player;
+			map.player = map.dock_entity.unwrap();
+			map.dock_entity = Some(player);
+		}
+		!over_ui
 	}
 
 	fn finish_trade(&mut self, map: &mut Map)
 	{
 		let do_trade = self.do_trade(map);
-		let dock_equipment = map
-			.dock_entity
-			.and_then(|dock_entity| map.world.get::<&mut comps::Equipment>(dock_entity).ok());
-		if let Ok(mut equipment) = map.world.get::<&mut comps::Equipment>(map.player)
+
+		let mut query = map.world.query::<&mut comps::Equipment>();
+		let mut view = query.view();
+		let [dock_equipment, player_equipment] = if let Some(dock_entity) = map.dock_entity
+		{
+			view.get_mut_n([dock_entity, map.player])
+		}
+		else
+		{
+			[None, view.get_mut(map.player)]
+		};
+
+		if let Some(equipment) = player_equipment
 		{
 			if let Some((i, equipment_idx, item)) = self.dragged_item.take()
 			{
@@ -554,7 +705,7 @@ impl EquipmentScreen
 				{
 					equipment.slots[i].item = Some(item);
 				}
-				else if let Some(mut dock_equipment) = dock_equipment
+				else if let Some(dock_equipment) = dock_equipment
 				{
 					// When returning item to the trade partner, refund the price.
 					if do_trade
@@ -589,15 +740,22 @@ impl EquipmentScreen
 		let do_trade = self.do_trade(map);
 		let mouse_pos = Point2::new(state.mouse_pos.x as f32, state.mouse_pos.y as f32);
 
-		let mut dock_equipment = map
-			.dock_entity
-			.and_then(|dock_entity| map.world.get::<&mut comps::Equipment>(dock_entity).ok());
-		let dock_slots = dock_equipment.iter_mut().flat_map(|eq| eq.slots.iter_mut());
-		if let Ok(mut equipment) = map.world.get::<&mut comps::Equipment>(map.player)
+		let mut query = map.world.query::<&comps::Equipment>();
+		let view = query.view();
+		let [dock_equipment, player_equipment] = if let Some(dock_entity) = map.dock_entity
+		{
+			[view.get(dock_entity), view.get(map.player)]
+		}
+		else
+		{
+			[None, view.get(map.player)]
+		};
+		let dock_slots = dock_equipment.iter().flat_map(|eq| eq.slots.iter());
+		if let Some(equipment) = player_equipment
 		{
 			let mut hover_item = None;
 			for (i, (equipment_idx, slot)) in
-				(equipment.slots.iter_mut().map(|slot| (1, slot)).enumerate())
+				(equipment.slots.iter().map(|slot| (1, slot)).enumerate())
 					.chain(dock_slots.map(|slot| (0, slot)).enumerate())
 			{
 				if do_trade && equipment_idx == 0 && !slot.is_inventory
@@ -688,6 +846,11 @@ impl EquipmentScreen
 				draw_item(mouse_pos.x, mouse_pos.y, item, state);
 			}
 		}
+
+		if let Some(button) = self.switch_ships.as_ref()
+		{
+			button.draw(state);
+		}
 	}
 }
 
@@ -708,6 +871,14 @@ fn draw_ship_state(ship_state: &comps::ShipState, x: f32, y: f32, state: &game_s
 		FontAlign::Left,
 		&format!("Hull: {}", ship_state.hull as i32),
 	);
+	state.core.draw_text(
+		&state.ui_font,
+		Color::from_rgb_f(1., 1., 1.),
+		x,
+		y + 16.,
+		FontAlign::Left,
+		&format!("Crew: {}", ship_state.crew),
+	);
 }
 
 fn make_target(
@@ -724,8 +895,8 @@ fn make_target(
 }
 
 fn make_projectile(
-	pos: Point3<f32>, dir: Vector3<f32>, parent: hecs::Entity, world: &mut hecs::World,
-	state: &mut game_state::GameState,
+	pos: Point3<f32>, dir: Vector3<f32>, parent: hecs::Entity, team: comps::Team,
+	world: &mut hecs::World, state: &mut game_state::GameState,
 ) -> Result<hecs::Entity>
 {
 	let mesh = "data/sphere.glb";
@@ -752,7 +923,10 @@ fn make_projectile(
 			effects: vec![
 				comps::ContactEffect::Die,
 				comps::ContactEffect::Hurt {
-					damage: comps::Damage { damage: 10. },
+					damage: comps::Damage {
+						damage: 10.,
+						team: team,
+					},
 				},
 			],
 		},
@@ -760,8 +934,8 @@ fn make_projectile(
 	Ok(res)
 }
 
-fn make_player(
-	pos: Point3<f32>, world: &mut hecs::World, state: &mut game_state::GameState,
+fn make_ship(
+	pos: Point3<f32>, team: comps::Team, world: &mut hecs::World, state: &mut game_state::GameState,
 ) -> Result<hecs::Entity>
 {
 	let mesh = "data/small_ship.glb";
@@ -841,93 +1015,7 @@ fn make_player(
 		equipment,
 		comps::ShipState {
 			hull: 100.,
-			team: comps::Team::English,
-		},
-		comps::Tilt {
-			tilt: 0.,
-			target_tilt: 0.,
-		},
-	));
-	Ok(res)
-}
-
-fn make_enemy(
-	pos: Point3<f32>, team: comps::Team, world: &mut hecs::World, state: &mut game_state::GameState,
-) -> Result<hecs::Entity>
-{
-	let mesh = "data/small_ship.glb";
-	game_state::cache_mesh(state, mesh)?;
-	let res = world.spawn((
-		comps::Position { pos: pos, dir: 0. },
-		comps::Velocity {
-			vel: Vector3::zeros(),
-			dir_vel: 0.,
-		},
-		comps::Mesh { mesh: mesh.into() },
-		comps::Target { waypoints: vec![] },
-		comps::AI {
-			state: comps::AIState::Idle,
-		},
-		comps::Stats { speed: 5. },
-		comps::Solid {
-			size: 2.,
-			mass: 1.,
-			kind: comps::CollideKind::Big,
-			parent: None,
-		},
-		comps::Equipment::new(
-			4,
-			false,
-			vec![
-				comps::ItemSlot {
-					pos: Point2::new(0.5, 1.0),
-					dir: Some(PI / 2.0),
-
-					item: Some(comps::Item {
-						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
-							fire_interval: 1.,
-							arc: PI / 2.0,
-						})),
-						price: 10,
-					}),
-					is_inventory: false,
-				},
-				comps::ItemSlot {
-					pos: Point2::new(-0.5, 1.0),
-					dir: Some(PI / 2.0),
-
-					item: Some(comps::Item {
-						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
-							fire_interval: 1.,
-							arc: PI / 2.0,
-						})),
-						price: 10,
-					}),
-					is_inventory: false,
-				},
-				comps::ItemSlot {
-					pos: Point2::new(0.0, -1.0),
-					dir: Some(-PI / 2.0),
-					item: Some(comps::Item {
-						kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
-							fire_interval: 1.,
-							arc: PI / 2.0,
-						})),
-						price: 10,
-					}),
-					is_inventory: false,
-				},
-			],
-		),
-		comps::ShipState {
-			hull: if team == comps::Team::English
-			{
-				100.
-			}
-			else
-			{
-				20.
-			},
+			crew: 9,
 			team: team,
 		},
 		comps::Tilt {
@@ -968,7 +1056,12 @@ impl Map
 		let mut rng = StdRng::seed_from_u64(thread_rng().gen::<u16>() as u64);
 		let mut world = hecs::World::new();
 
-		let player = make_player(Point3::new(30., 0., 0.), &mut world, state)?;
+		let player = make_ship(
+			Point3::new(30., 0., 0.),
+			comps::Team::English,
+			&mut world,
+			state,
+		)?;
 
 		let mut cells = vec![];
 		for y in -CELL_RADIUS..=CELL_RADIUS
@@ -1148,7 +1241,7 @@ impl Map
 			.iter()
 		{
 			tilt.target_tilt = state.time().sin() as f32 * PI / 4.;
-			if ship_state.hull <= 0.
+			if !ship_state.is_structurally_sound()
 			{
 				tilt.target_tilt -= PI / 2.;
 			}
@@ -1236,10 +1329,18 @@ impl Map
 					(comps::ContactEffect::Die, _) => to_die.push(id),
 					(comps::ContactEffect::Hurt { damage }, Some(other_id)) =>
 					{
+						let mut damaged = false;
 						if let Ok(mut ship_state) =
 							self.world.get::<&mut comps::ShipState>(other_id)
 						{
-							ship_state.damage(&damage);
+							damaged = ship_state.damage(&damage);
+						}
+						if damaged
+						{
+							if let Ok(mut ai) = self.world.get::<&mut comps::AI>(other_id)
+							{
+								ai.state = comps::AIState::Pursuing(id);
+							}
 						}
 					}
 					_ => (),
@@ -1278,7 +1379,7 @@ impl Map
 		let player_alive = self
 			.world
 			.get::<&comps::ShipState>(self.player)
-			.map(|s| s.hull > 0.)
+			.map(|s| s.is_active())
 			.unwrap_or(false);
 		let want_move = state.controls.get_action_state(controls::Action::Move) > 0.5;
 		let want_dock = state.controls.get_action_state(controls::Action::Dock) > 0.5;
@@ -1342,6 +1443,7 @@ impl Map
 					Ok(pos),
 					Ok(_),
 					Ok(ship_state),
+					ai,
 				) = (
 					self.world.get::<&comps::Position>(self.player),
 					self.world.get::<&mut comps::Target>(self.player),
@@ -1349,13 +1451,22 @@ impl Map
 					self.world.get::<&comps::Position>(mouse_entity),
 					self.world.get::<&comps::Equipment>(mouse_entity),
 					self.world.get::<&comps::ShipState>(mouse_entity),
+					self.world.get::<&mut comps::AI>(mouse_entity),
 				)
 				{
-					if (player_pos.pos.zx() - pos.pos.zx()).magnitude() < 10.0
-						&& ship_state.team.dock_with(&player_ship_state.team)
+					if ship_state.team.dock_with(&player_ship_state.team)
 					{
-						player_target.clear(|m| to_die.push(m));
-						self.dock_entity = Some(mouse_entity);
+						if let Ok(mut ai) = ai
+						{
+							ai.state = comps::AIState::Pause {
+								time_to_unpause: state.time() + 1.,
+							};
+						}
+						if (player_pos.pos.zx() - pos.pos.zx()).magnitude() < 10.0
+						{
+							player_target.clear(|m| to_die.push(m));
+							self.dock_entity = Some(mouse_entity);
+						}
 					}
 				}
 			}
@@ -1372,9 +1483,9 @@ impl Map
 
 		// Equipment actions
 		let mut spawn_projectiles = vec![];
-		for (id, (pos, equipment)) in self
+		for (id, (pos, equipment, ship_state)) in self
 			.world
-			.query::<(&comps::Position, &mut comps::Equipment)>()
+			.query::<(&comps::Position, &mut comps::Equipment, &comps::ShipState)>()
 			.iter()
 		{
 			if !equipment.want_action_1
@@ -1440,7 +1551,12 @@ impl Map
 									let spawn_dir = rot * spawn_dir;
 									let spawn_dir =
 										Vector3::new(spawn_dir.y, 0.5, spawn_dir.x).normalize();
-									spawn_projectiles.push((spawn_pos, spawn_dir, id));
+									spawn_projectiles.push((
+										spawn_pos,
+										spawn_dir,
+										id,
+										ship_state.team,
+									));
 									weapon.time_to_fire =
 										state.time() + weapon.stats.fire_interval as f64;
 								}
@@ -1451,9 +1567,9 @@ impl Map
 			}
 		}
 
-		for (spawn_pos, spawn_dir, parent) in spawn_projectiles
+		for (spawn_pos, spawn_dir, parent, team) in spawn_projectiles
 		{
-			make_projectile(spawn_pos, spawn_dir, parent, &mut self.world, state)?;
+			make_projectile(spawn_pos, spawn_dir, parent, team, &mut self.world, state)?;
 		}
 
 		// Update player pos.
@@ -1523,10 +1639,6 @@ impl Map
 			)>()
 			.iter()
 		{
-			if ship_state.hull <= 0.
-			{
-				continue;
-			}
 			if Some(id) == self.dock_entity
 			{
 				target.clear(|m| to_die.push(m));
@@ -1534,6 +1646,14 @@ impl Map
 			}
 			match ai.state
 			{
+				comps::AIState::Pause { time_to_unpause } =>
+				{
+					target.clear(|m| to_die.push(m));
+					if state.time() > time_to_unpause
+					{
+						ai.state = comps::AIState::Idle;
+					}
+				}
 				comps::AIState::Idle =>
 				{
 					let sense_radius = 30.;
@@ -1665,16 +1785,23 @@ impl Map
 			}
 		}
 
-		// Hull death
-		for (_, (target, ship_state)) in self
+		// Ship state death
+		let mut remove_ai = vec![];
+		for (id, (target, ship_state)) in self
 			.world
 			.query_mut::<(&mut comps::Target, &mut comps::ShipState)>()
 		{
-			if ship_state.hull <= 0.
+			if !ship_state.is_active() && ship_state.team != comps::Team::Neutral
 			{
 				target.clear(|m| to_die.push(m));
 				ship_state.team = comps::Team::Neutral;
+				remove_ai.push(id);
 			}
+		}
+		for id in remove_ai
+		{
+			// Player has no AI.
+			self.world.remove_one::<comps::AI>(id).ok();
 		}
 
 		// Time to die
@@ -1908,7 +2035,7 @@ impl Map
 
 			if let Ok(ship_state) = self.world.get::<&comps::ShipState>(self.player)
 			{
-				draw_ship_state(&*ship_state, 16., dh - 32., state);
+				draw_ship_state(&*ship_state, dw - 100., dh - 128., state);
 			}
 
 			if let Some(ship_state) = self
@@ -1918,7 +2045,7 @@ impl Map
 			{
 				if self.mouse_entity != Some(self.player)
 				{
-					draw_ship_state(&*ship_state, dw - 100., dh - 32., state);
+					draw_ship_state(&*ship_state, 16., dh - 128., state);
 				}
 			}
 			state.core.draw_text(

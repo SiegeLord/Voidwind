@@ -79,12 +79,6 @@ pub struct AI
 	pub state: AIState,
 }
 
-#[derive(Clone, Debug)]
-pub struct Stats
-{
-	pub speed: f32,
-}
-
 #[derive(Copy, Clone, Debug)]
 pub enum CollideKind
 {
@@ -125,8 +119,8 @@ pub struct WeaponStats
 #[derive(Clone, Debug)]
 pub struct Weapon
 {
-	pub want_to_fire: bool,
-	pub time_to_fire: f64,
+	pub readiness: f32,
+	pub time_to_fire: Option<f64>,
 	pub stats: WeaponStats,
 }
 
@@ -135,8 +129,8 @@ impl Weapon
 	pub fn new(stats: WeaponStats) -> Self
 	{
 		Self {
-			want_to_fire: false,
-			time_to_fire: stats.fire_interval as f64,
+			readiness: 0.,
+			time_to_fire: None,
 			stats: stats,
 		}
 	}
@@ -175,6 +169,20 @@ pub struct Item
 {
 	pub kind: ItemKind,
 	pub price: i32,
+}
+
+impl Item
+{
+	pub fn reset_cooldowns(&mut self)
+	{
+		match &mut self.kind
+		{
+			ItemKind::Weapon(weapon) =>
+			{
+				weapon.readiness = 0.;
+			}
+		}
+	}
 }
 
 #[derive(Clone, Debug)]
@@ -257,15 +265,49 @@ pub struct OnContactEffect
 }
 
 #[derive(Clone, Debug)]
+pub struct ShipStats
+{
+	pub hull: f32,
+	pub crew: i32,
+	pub sails: f32,
+	pub infirmary: f32,
+	pub armor: [f32; 4], // front, right, back, left
+	pub speed: f32,
+	pub dir_speed: f32,
+}
+
+#[derive(Clone, Debug)]
 pub struct ShipState
 {
 	pub hull: f32,
 	pub crew: i32,
+	pub wounded: i32,
+	pub experience: f32,
 	pub team: Team,
+	pub sails: f32,
+	pub infirmary: f32,
+	pub armor: [f32; 4], // front, right, back, left
+
+	pub num_weapons: i32,
 }
 
 impl ShipState
 {
+	pub fn new(stats: &ShipStats, team: Team, experience: f32) -> Self
+	{
+		Self {
+			hull: stats.hull,
+			crew: stats.crew,
+			wounded: 0,
+			team: team,
+			experience: experience,
+			sails: stats.sails,
+			infirmary: stats.infirmary,
+			armor: stats.armor,
+			num_weapons: 0,
+		}
+	}
+
 	pub fn damage(&mut self, damage: &Damage) -> bool
 	{
 		if damage.team.can_damage(&self.team)

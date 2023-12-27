@@ -115,13 +115,25 @@ impl Cell
 			(center.y * CELL_SIZE) as f32,
 		);
 
-		dbg!(world_center);
+		//dbg!(world_center);
+
+		let ship_stats = comps::ShipStats {
+			hull: 100.,
+			crew: 10,
+			sails: 30.,
+			infirmary: 20.,
+			armor: [100., 100., 100., 100.], // front, right, back, left
+			speed: 10.,
+			dir_speed: 1.,
+		};
 
 		let ship = make_ship(
 			world_center,
+			&ship_stats,
 			*[comps::Team::English, comps::Team::French]
 				.choose(rng)
 				.unwrap(),
+			0.,
 			world,
 			state,
 		)?;
@@ -578,7 +590,7 @@ impl EquipmentScreen
 						{
 							// Drop item.
 							// If dropping into trade partner's window, grab the money.
-							let (source_i, source_equipment_idx, item) =
+							let (source_i, source_equipment_idx, mut item) =
 								self.dragged_item.take().unwrap();
 							if equipment_idx == 0 && do_trade
 							{
@@ -588,6 +600,7 @@ impl EquipmentScreen
 								.item
 								.take()
 								.map(|item| (source_i, source_equipment_idx, item));
+							item.reset_cooldowns();
 							slot.item = Some(item);
 						}
 						if !self.mouse_button_down
@@ -667,8 +680,11 @@ impl EquipmentScreen
 				(dock_state.as_mut(), player_state.as_mut())
 			{
 				let player_crew = player_state.crew;
+				let player_wounded = player_state.wounded;
 				player_state.crew = dock_state.crew;
+				player_state.wounded = dock_state.wounded;
 				dock_state.crew = player_crew;
+				dock_state.wounded = player_wounded;
 
 				let player_team = player_state.team;
 				player_state.team = dock_state.team;
@@ -686,34 +702,53 @@ impl EquipmentScreen
 	{
 		let do_trade = self.do_trade(map);
 
-		let mut query = map.world.query::<&mut comps::Equipment>();
-		let mut view = query.view();
-		let [dock_equipment, player_equipment] = if let Some(dock_entity) = map.dock_entity
 		{
-			view.get_mut_n([dock_entity, map.player])
-		}
-		else
-		{
-			[None, view.get_mut(map.player)]
-		};
-
-		if let Some(equipment) = player_equipment
-		{
-			if let Some((i, equipment_idx, item)) = self.dragged_item.take()
+			let mut query = map.world.query::<&mut comps::Equipment>();
+			let mut view = query.view();
+			let [dock_equipment, player_equipment] = if let Some(dock_entity) = map.dock_entity
 			{
-				if equipment_idx == 1
+				view.get_mut_n([dock_entity, map.player])
+			}
+			else
+			{
+				[None, view.get_mut(map.player)]
+			};
+
+			if let Some(equipment) = player_equipment
+			{
+				if let Some((i, equipment_idx, item)) = self.dragged_item.take()
 				{
-					equipment.slots[i].item = Some(item);
-				}
-				else if let Some(dock_equipment) = dock_equipment
-				{
-					// When returning item to the trade partner, refund the price.
-					if do_trade
+					if equipment_idx == 1
 					{
-						map.money += item.price;
+						equipment.slots[i].item = Some(item);
 					}
-					dock_equipment.slots[i].item = Some(item);
+					else if let Some(dock_equipment) = dock_equipment
+					{
+						// When returning item to the trade partner, refund the price.
+						if do_trade
+						{
+							map.money += item.price;
+						}
+						dock_equipment.slots[i].item = Some(item);
+					}
 				}
+			}
+		}
+		if let (Ok(mut ship_state), Ok(stats)) = (
+			map.world.get::<&mut comps::ShipState>(map.player),
+			map.world.get::<&comps::ShipStats>(map.player),
+		)
+		{
+			let overflow = ship_state.crew + ship_state.wounded - stats.crew;
+			if overflow > 0
+			{
+				// ...I guess we dump them overboard? LOL...
+				ship_state.wounded -= overflow.min(ship_state.wounded);
+			}
+			let overflow = ship_state.crew + ship_state.wounded - stats.crew;
+			if overflow > 0
+			{
+				ship_state.crew -= overflow;
 			}
 		}
 	}
@@ -861,8 +896,50 @@ fn draw_item(x: f32, y: f32, _item: &comps::Item, state: &game_state::GameState)
 		.draw_filled_circle(x, y, 8., Color::from_rgba_f(1., 0., 0., 1.));
 }
 
-fn draw_ship_state(ship_state: &comps::ShipState, x: f32, y: f32, state: &game_state::GameState)
+fn draw_ship_state(
+	ship_state: &comps::ShipState, stats: &comps::ShipStats, x: f32, y: f32,
+	state: &game_state::GameState,
+)
 {
+	let mut y = y;
+
+	y += 32.;
+
+	let lh = state.ui_font.get_line_height() as f32;
+
+	for (i, (armor, armor_max)) in ship_state.armor.iter().zip(stats.armor.iter()).enumerate()
+	{
+		let theta = -PI / 2. + i as f32 * PI / 2.;
+
+		let r = 32.;
+		let cx = x + 64.;
+
+		let lx = cx + (32. + r) * theta.cos();
+		let ly = y + (16. + r) * theta.sin();
+
+		state.prim.draw_arc(
+			cx,
+			y,
+			r,
+			theta - PI / 4. + 0.1,
+			PI / 2. - 0.2,
+			Color::from_rgba_f(1., 1., 1., 1.),
+			(armor / armor_max * 10.).ceil(),
+		);
+
+		state.core.draw_text(
+			&state.ui_font,
+			Color::from_rgba_f(1., 1., 1., 1.),
+			lx,
+			ly - lh / 2.,
+			FontAlign::Centre,
+			&format!("{}", *armor as i32),
+		);
+	}
+
+	y += 64.;
+
+	let h = 16.;
 	state.core.draw_text(
 		&state.ui_font,
 		Color::from_rgb_f(1., 1., 1.),
@@ -871,13 +948,32 @@ fn draw_ship_state(ship_state: &comps::ShipState, x: f32, y: f32, state: &game_s
 		FontAlign::Left,
 		&format!("Hull: {}", ship_state.hull as i32),
 	);
+	y += h;
 	state.core.draw_text(
 		&state.ui_font,
 		Color::from_rgb_f(1., 1., 1.),
 		x,
-		y + 16.,
+		y,
 		FontAlign::Left,
-		&format!("Crew: {}", ship_state.crew),
+		&format!("Crew: {} H / {} W", ship_state.crew, ship_state.wounded),
+	);
+	y += h;
+	state.core.draw_text(
+		&state.ui_font,
+		Color::from_rgb_f(1., 1., 1.),
+		x,
+		y,
+		FontAlign::Left,
+		&format!("Infirmary: {}", ship_state.infirmary as i32),
+	);
+	y += h;
+	state.core.draw_text(
+		&state.ui_font,
+		Color::from_rgb_f(1., 1., 1.),
+		x,
+		y,
+		FontAlign::Left,
+		&format!("Sails: {}", ship_state.sails as i32),
 	);
 }
 
@@ -935,7 +1031,8 @@ fn make_projectile(
 }
 
 fn make_ship(
-	pos: Point3<f32>, team: comps::Team, world: &mut hecs::World, state: &mut game_state::GameState,
+	pos: Point3<f32>, stats: &comps::ShipStats, team: comps::Team, experience: f32,
+	world: &mut hecs::World, state: &mut game_state::GameState,
 ) -> Result<hecs::Entity>
 {
 	let mesh = "data/small_ship.glb";
@@ -1005,7 +1102,7 @@ fn make_ship(
 		},
 		comps::Mesh { mesh: mesh.into() },
 		comps::Target { waypoints: vec![] },
-		comps::Stats { speed: 10. },
+		stats.clone(),
 		comps::Solid {
 			size: 2.,
 			mass: 1.,
@@ -1013,11 +1110,7 @@ fn make_ship(
 			parent: None,
 		},
 		equipment,
-		comps::ShipState {
-			hull: 100.,
-			crew: 9,
-			team: team,
-		},
+		comps::ShipState::new(stats, team, experience),
 		comps::Tilt {
 			tilt: 0.,
 			target_tilt: 0.,
@@ -1056,12 +1149,35 @@ impl Map
 		let mut rng = StdRng::seed_from_u64(thread_rng().gen::<u16>() as u64);
 		let mut world = hecs::World::new();
 
+		let ship_stats = comps::ShipStats {
+			hull: 100.,
+			crew: 20,
+			sails: 30.,
+			infirmary: 100.,
+			armor: [100., 100., 100., 100.], // front, right, back, left
+			speed: 10.,
+			dir_speed: 1.,
+		};
+
 		let player = make_ship(
 			Point3::new(30., 0., 0.),
+			&ship_stats,
 			comps::Team::English,
+			0.,
 			&mut world,
 			state,
 		)?;
+		{
+			let mut ship_state = world.get::<&mut comps::ShipState>(player).unwrap();
+			ship_state.hull = 50.;
+			ship_state.crew = 5;
+			ship_state.wounded = 6;
+			ship_state.infirmary = 0.;
+			ship_state.sails = 0.;
+			ship_state.armor[0] = 50.;
+			ship_state.armor[1] = 0.;
+			ship_state.experience = 0.;
+		}
 
 		let mut cells = vec![];
 		for y in -CELL_RADIUS..=CELL_RADIUS
@@ -1231,6 +1347,136 @@ impl Map
 			if pos.pos.y < -0.0
 			{
 				to_die.push(id);
+			}
+		}
+
+		// Ship state simulation.
+		for (_, (ship_state, stats, equipment)) in self
+			.world
+			.query::<(
+				&mut comps::ShipState,
+				&comps::ShipStats,
+				&mut comps::Equipment,
+			)>()
+			.iter()
+		{
+			if !ship_state.is_structurally_sound()
+			{
+				// Can't fix a broken ship.
+				continue;
+			}
+
+			let effective_crew = ship_state.crew as f32 * (1. + ship_state.experience);
+
+			// Each crew member can repair 1 point per 1 second, probabilistically
+			let repair_prob = dt as f64;
+			let num_repaired = rand_distr::Binomial::new(effective_crew as u64, repair_prob)
+				.unwrap()
+				.sample(&mut self.rng);
+
+			let parts = [
+				10. * (stats.hull - ship_state.hull), // No hull, no ship.
+				stats.sails - ship_state.sails,
+				stats.infirmary - ship_state.infirmary,
+				stats.armor[0] - ship_state.armor[0],
+				stats.armor[1] - ship_state.armor[1],
+				stats.armor[2] - ship_state.armor[2],
+				stats.armor[3] - ship_state.armor[3],
+			];
+			if let Ok(dist) = rand_distr::WeightedIndex::new(&parts)
+			{
+				match dist.sample(&mut self.rng)
+				{
+					0 => ship_state.hull = (ship_state.hull + num_repaired as f32).min(stats.hull),
+					1 =>
+					{
+						ship_state.sails = (ship_state.sails + num_repaired as f32).min(stats.sails)
+					}
+					2 =>
+					{
+						ship_state.infirmary =
+							(ship_state.infirmary + num_repaired as f32).min(stats.infirmary)
+					}
+					3 =>
+					{
+						ship_state.armor[0] =
+							(ship_state.armor[0] + num_repaired as f32).min(stats.armor[0])
+					}
+					4 =>
+					{
+						ship_state.armor[1] =
+							(ship_state.armor[1] + num_repaired as f32).min(stats.armor[1])
+					}
+					5 =>
+					{
+						ship_state.armor[2] =
+							(ship_state.armor[2] + num_repaired as f32).min(stats.armor[2])
+					}
+					6 =>
+					{
+						ship_state.armor[3] =
+							(ship_state.armor[3] + num_repaired as f32).min(stats.armor[3])
+					}
+					_ => unreachable!(),
+				}
+			}
+
+			// Each patient has a chance of getting better, weighed by infirmary strength... I
+			// guess it has more drugs?
+			let heal_prob =
+				(dt as f32 * ship_state.infirmary / 1000.0 / ship_state.wounded as f32).min(1.);
+			for _ in 0..ship_state.wounded
+			{
+				if self.rng.gen_bool(heal_prob as f64)
+				{
+					ship_state.wounded -= 1;
+					ship_state.crew += 1;
+				}
+			}
+
+			// Weapon handling.
+			let mut num_weapons = 0;
+			for slot in &equipment.slots
+			{
+				if slot.is_inventory
+				{
+					continue;
+				}
+				if let Some(item) = slot.item.as_ref()
+				{
+					match &item.kind
+					{
+						comps::ItemKind::Weapon(_) =>
+						{
+							num_weapons += 1;
+						}
+					}
+				}
+			}
+			ship_state.num_weapons = num_weapons;
+
+			// X crew per weapon to reload it effectively.
+			let crew_per_weapon = 10;
+			let fire_rate_adjustment =
+				1. / crew_per_weapon as f32 * effective_crew / ship_state.num_weapons as f32;
+			for slot in &mut equipment.slots
+			{
+				if slot.is_inventory
+				{
+					continue;
+				}
+				if let Some(item) = slot.item.as_mut()
+				{
+					match &mut item.kind
+					{
+						comps::ItemKind::Weapon(weapon) =>
+						{
+							weapon.readiness = (weapon.readiness
+								+ dt * (fire_rate_adjustment / weapon.stats.fire_interval))
+								.min(1.0);
+						}
+					}
+				}
 			}
 		}
 
@@ -1488,10 +1734,8 @@ impl Map
 			.query::<(&comps::Position, &mut comps::Equipment, &comps::ShipState)>()
 			.iter()
 		{
-			if !equipment.want_action_1
-			{
-				continue;
-			}
+			// No buffering
+			let want_action_1 = equipment.want_action_1;
 			equipment.want_action_1 = false;
 			for slot in &mut equipment.slots
 			{
@@ -1505,8 +1749,17 @@ impl Map
 					{
 						comps::ItemKind::Weapon(weapon) =>
 						{
-							if state.time() > weapon.time_to_fire
+							if weapon.readiness >= 1.0 && want_action_1
 							{
+								weapon.time_to_fire =
+									Some(state.time() + self.rng.gen_range(0.0..0.2));
+							}
+							if weapon
+								.time_to_fire
+								.map(|ttf| state.time() > ttf)
+								.unwrap_or(false)
+							{
+								weapon.time_to_fire = None;
 								let rot = Rotation2::new(pos.dir);
 								let slot_dir = slot.dir.unwrap_or(0.);
 								let rot_slot = Rotation2::new(slot_dir);
@@ -1557,8 +1810,7 @@ impl Map
 										id,
 										ship_state.team,
 									));
-									weapon.time_to_fire =
-										state.time() + weapon.stats.fire_interval as f64;
+									weapon.readiness = 0.;
 								}
 							}
 						}
@@ -1579,13 +1831,14 @@ impl Map
 		}
 
 		// Target movement.
-		for (_, (target, pos, vel, stats)) in self
+		for (_, (target, pos, vel, ship_state, stats)) in self
 			.world
 			.query::<(
 				&mut comps::Target,
 				&comps::Position,
 				&mut comps::Velocity,
-				&comps::Stats,
+				&comps::ShipState,
+				&comps::ShipStats,
 			)>()
 			.iter()
 		{
@@ -1616,15 +1869,18 @@ impl Map
 			let rot = Rotation2::new(pos.dir);
 			let forward = rot * Vector2::new(1., 0.);
 			let left = rot * Vector2::new(0., 1.);
+
+			let speed_factor = 0.1 + 0.9 * (ship_state.sails / stats.sails);
+
 			if diff.dot(&left) > 0.
 			{
-				vel.dir_vel = stats.speed / 10.;
+				vel.dir_vel = speed_factor * stats.dir_speed;
 			}
 			else
 			{
-				vel.dir_vel = -stats.speed / 10.;
+				vel.dir_vel = speed_factor * -stats.dir_speed;
 			}
-			vel.vel = stats.speed * Vector3::new(forward.y, 0., forward.x);
+			vel.vel = speed_factor * stats.speed * Vector3::new(forward.y, 0., forward.x);
 		}
 
 		// AI
@@ -1977,8 +2233,7 @@ impl Map
 								weapon_slots.push((
 									pos.pos,
 									pos.dir,
-									weapon.time_to_fire,
-									weapon.stats.fire_interval,
+									weapon.readiness,
 									slot.pos,
 									slot.dir.unwrap_or(0.),
 									weapon.stats.arc,
@@ -1993,13 +2248,12 @@ impl Map
 			let offt = total / 2.;
 			let mouse_ground_pos = self.get_mouse_ground_pos(state);
 
-			for (i, (pos, dir, time_to_fire, fire_interval, slot_pos, slot_dir, arc)) in
+			for (i, (pos, dir, fire_readiness, slot_pos, slot_dir, arc)) in
 				weapon_slots.iter().enumerate()
 			{
 				let x = i as f32 * w - offt + dw / 2.;
 				let y = dh - 2. * w;
-				let f =
-					1. - utils::clamp((time_to_fire - state.time()) as f32 / fire_interval, 0., 1.);
+				let f = *fire_readiness;
 
 				let rot = Rotation2::new(*dir);
 				let rot_slot = Rotation2::new(*slot_dir);
@@ -2033,19 +2287,25 @@ impl Map
 				}
 			}
 
-			if let Ok(ship_state) = self.world.get::<&comps::ShipState>(self.player)
+			if let (Ok(ship_state), Ok(stats)) = (
+				self.world.get::<&comps::ShipState>(self.player),
+				self.world.get::<&comps::ShipStats>(self.player),
+			)
 			{
-				draw_ship_state(&*ship_state, dw - 100., dh - 128., state);
+				draw_ship_state(&*ship_state, &*stats, dw - 256., dh - 256., state);
 			}
 
-			if let Some(ship_state) = self
-				.mouse_entity
-				.as_ref()
-				.and_then(|e| self.world.get::<&comps::ShipState>(*e).ok())
+			if let Some(mouse_entity) = self.mouse_entity
 			{
 				if self.mouse_entity != Some(self.player)
 				{
-					draw_ship_state(&*ship_state, 16., dh - 128., state);
+					if let (Ok(ship_state), Ok(stats)) = (
+						self.world.get::<&comps::ShipState>(mouse_entity),
+						self.world.get::<&comps::ShipStats>(mouse_entity),
+					)
+					{
+						draw_ship_state(&*ship_state, &*stats, 16., dh - 256., state);
+					}
 				}
 			}
 			state.core.draw_text(

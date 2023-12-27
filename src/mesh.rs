@@ -6,9 +6,16 @@ use allegro::*;
 use allegro_primitives::*;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Material
+pub struct MaterialDesc
 {
 	pub texture: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct Material
+{
+	pub name: String,
+	pub desc: MaterialDesc,
 }
 
 #[derive(Clone, Debug)]
@@ -77,8 +84,20 @@ impl MultiMesh
 					let material = prim
 						.material()
 						.name()
-						.map(|x| utils::load_config(&format!("data/{}.cfg", x)))
-						.map_or(Ok(None), |x| x.map(Some))?;
+						.map(|name| {
+							(
+								name.to_string(),
+								utils::load_config(&format!("data/{}.cfg", name)),
+							)
+						})
+						.map_or(Ok(None), |(name, desc)| {
+							desc.map(|desc| {
+								Some(Material {
+									name: name,
+									desc: desc,
+								})
+							})
+						})?;
 					meshes.push(Mesh {
 						vtxs: vtxs,
 						idxs: idxs,
@@ -90,13 +109,15 @@ impl MultiMesh
 		Ok(Self { meshes: meshes })
 	}
 
-	pub fn draw<'l, T: Fn(&str) -> Option<&'l Bitmap>>(&self, prim: &PrimitivesAddon, bitmap_fn: T)
+	pub fn draw<'l, T: Fn(&str, &str) -> Option<&'l Bitmap>>(&self, prim: &PrimitivesAddon, bitmap_fn: T)
 	{
 		for mesh in self.meshes.iter()
 		{
 			prim.draw_indexed_prim(
 				&mesh.vtxs[..],
-				mesh.material.as_ref().and_then(|m| bitmap_fn(&m.texture)),
+				mesh.material
+					.as_ref()
+					.and_then(|m| bitmap_fn(&m.name, &m.desc.texture)),
 				&mesh.idxs[..],
 				0,
 				mesh.idxs.len() as u32,

@@ -289,7 +289,7 @@ pub fn cache_mesh(state: &mut GameState, name: &str) -> Result<()>
 	{
 		if let Some(material) = mesh.material.as_ref()
 		{
-			textures.push(material.texture.clone());
+			textures.push(material.desc.texture.clone());
 		}
 	}
 	for texture in textures

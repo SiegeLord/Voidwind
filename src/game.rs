@@ -906,6 +906,9 @@ impl Map
 			}
 		}
 
+        state.cache_bitmap("data/english_flag.png")?;
+        state.cache_bitmap("data/french_flag.png")?;
+
 		Ok(Self {
 			world: world,
 			rng: rng,
@@ -1279,6 +1282,7 @@ impl Map
         {
             self.zoom /= 1.25;
         }
+        self.zoom = utils::clamp(self.zoom, 1., 4.);
 
 		// Equipment actions
 		let mut spawn_projectiles = vec![];
@@ -1650,7 +1654,7 @@ impl Map
 			.core
 			.use_shader(Some(&*state.basic_shader.upgrade().unwrap()))
 			.unwrap();
-		for (_, (pos, mesh)) in self
+		for (id, (pos, mesh)) in self
 			.world
 			.query::<(&comps::Position, &comps::Mesh)>()
 			.iter()
@@ -1664,10 +1668,35 @@ impl Map
 				&utils::mat4_to_transform(shift.to_homogeneous()),
 			).ok();
 
+            let flag_mapper = |material_name: &str, texture_name: &str| -> Option<&Bitmap>
+            {
+                if material_name == "flag_material"
+                {
+                    if let Ok(ship_state) = self.world.get::<&comps::ShipState>(id)
+                    {
+                        let texture_name = match ship_state.team
+                        {
+                            comps::Team::English => "data/english_flag.png",
+                            comps::Team::French => "data/french_flag.png",
+                            _ => texture_name,
+                        };
+                        state.get_bitmap(texture_name)
+                    }
+                    else
+                    {
+                        state.get_bitmap(texture_name)
+                    }
+                }
+                else
+                {
+                    state.get_bitmap(texture_name)
+                }
+            };
+
 			state
 				.get_mesh(&mesh.mesh)
 				.unwrap()
-				.draw(&state.prim, |s| state.get_bitmap(s));
+				.draw(&state.prim, flag_mapper)//|s| state.get_bitmap(s));
 		}
 
 		let (dw, dh) = (self.buffer_width, self.buffer_height);

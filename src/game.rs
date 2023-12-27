@@ -28,8 +28,9 @@ pub struct Cell
 
 impl Cell
 {
-	fn new(
-		center: Point2<i32>, world: &mut hecs::World, state: &mut game_state::GameState,
+	fn new<R: Rng>(
+		center: Point2<i32>, rng: &mut R, world: &mut hecs::World,
+		state: &mut game_state::GameState,
 	) -> Result<Self>
 	{
 		let world_center = Point3::new(
@@ -40,7 +41,14 @@ impl Cell
 
 		dbg!(world_center);
 
-		make_enemy(world_center, comps::Team::French, world, state)?;
+		make_enemy(
+			world_center,
+			*[comps::Team::English, comps::Team::French]
+				.choose(rng)
+				.unwrap(),
+			world,
+			state,
+		)?;
 
 		Ok(Self { center: center })
 	}
@@ -422,17 +430,40 @@ impl EquipmentScreen
 					{
 						if self.mouse_button_down && self.dragged_item.is_none()
 						{
-							self.dragged_item =
-								slot.item.take().map(|item| (i, equipment_idx, item));
-							if self.ctrl_down
+							// Grab item.
+							// Don't grab if grabbing from trade partner and not enough money.
+							let mut start_grab = true;
+							if equipment_idx == 0 && do_trade
 							{
-								fast_move = true;
+								if let Some(item) = slot.item.as_ref()
+								{
+									if item.price > map.money
+									{
+										start_grab = false;
+									}
+									map.money -= item.price;
+								}
+							}
+							if start_grab
+							{
+								self.dragged_item =
+									slot.item.take().map(|item| (i, equipment_idx, item));
+								if self.ctrl_down
+								{
+									fast_move = true;
+								}
 							}
 						}
 						else if !self.mouse_button_down && self.dragged_item.is_some()
 						{
+							// Drop item.
+							// If dropping into trade partner's window, grab the money.
 							let (source_i, source_equipment_idx, item) =
 								self.dragged_item.take().unwrap();
+							if equipment_idx == 0 && do_trade
+							{
+								map.money += item.price;
+							}
 							old_item = slot
 								.item
 								.take()
@@ -467,6 +498,11 @@ impl EquipmentScreen
 					{
 						if *equipment_idx == 1
 						{
+							// This is in lieu of the logic for dropping.
+							if do_trade
+							{
+								map.money += item.price;
+							}
 							if let Some(dock_equipment) = dock_equipment.as_mut()
 							{
 								for slot in &mut dock_equipment.slots
@@ -482,6 +518,7 @@ impl EquipmentScreen
 						}
 						else
 						{
+							// We took care of the price when we grabbed it earlier.
 							for slot in &mut equipment.slots
 							{
 								if slot.is_inventory && slot.item.is_none()
@@ -503,8 +540,9 @@ impl EquipmentScreen
 		!self.over_ui(map, state)
 	}
 
-	fn finish_trade(&mut self, map: &Map)
+	fn finish_trade(&mut self, map: &mut Map)
 	{
+		let do_trade = self.do_trade(map);
 		let dock_equipment = map
 			.dock_entity
 			.and_then(|dock_entity| map.world.get::<&mut comps::Equipment>(dock_entity).ok());
@@ -518,6 +556,11 @@ impl EquipmentScreen
 				}
 				else if let Some(mut dock_equipment) = dock_equipment
 				{
+					// When returning item to the trade partner, refund the price.
+					if do_trade
+					{
+						map.money += item.price;
+					}
 					dock_equipment.slots[i].item = Some(item);
 				}
 			}
@@ -612,7 +655,21 @@ impl EquipmentScreen
 
 				let x = pos.x + 16.;
 				let mut y = pos.y + 16.;
-				for line in item.kind.description().lines()
+
+				let price_desc = if do_trade
+				{
+					let price = 10;
+					vec!["".into(), format!("Price: {price}")]
+				}
+				else
+				{
+					vec![]
+				};
+
+				for line in price_desc
+					.iter()
+					.map(|s| s.as_str())
+					.chain(item.kind.description().lines())
 				{
 					state.core.draw_text(
 						&state.ui_font,
@@ -722,6 +779,7 @@ fn make_player(
 						fire_interval: 1.,
 						arc: PI / 2.0,
 					})),
+					price: 10,
 				}),
 				is_inventory: false,
 			},
@@ -734,6 +792,7 @@ fn make_player(
 						fire_interval: 1.,
 						arc: PI / 2.0,
 					})),
+					price: 10,
 				}),
 				is_inventory: false,
 			},
@@ -745,6 +804,7 @@ fn make_player(
 						fire_interval: 1.,
 						arc: PI / 2.0,
 					})),
+					price: 10,
 				}),
 				is_inventory: false,
 			},
@@ -757,6 +817,7 @@ fn make_player(
 						fire_interval: 1.,
 						arc: PI / 4.0,
 					})),
+					price: 10,
 				}),
 				is_inventory: false,
 			},
@@ -781,6 +842,10 @@ fn make_player(
 		comps::ShipState {
 			hull: 100.,
 			team: comps::Team::English,
+		},
+		comps::Tilt {
+			tilt: 0.,
+			target_tilt: 0.,
 		},
 	));
 	Ok(res)
@@ -823,6 +888,7 @@ fn make_enemy(
 							fire_interval: 1.,
 							arc: PI / 2.0,
 						})),
+						price: 10,
 					}),
 					is_inventory: false,
 				},
@@ -835,6 +901,7 @@ fn make_enemy(
 							fire_interval: 1.,
 							arc: PI / 2.0,
 						})),
+						price: 10,
 					}),
 					is_inventory: false,
 				},
@@ -846,6 +913,7 @@ fn make_enemy(
 							fire_interval: 1.,
 							arc: PI / 2.0,
 						})),
+						price: 10,
 					}),
 					is_inventory: false,
 				},
@@ -861,6 +929,10 @@ fn make_enemy(
 				20.
 			},
 			team: team,
+		},
+		comps::Tilt {
+			tilt: 0.,
+			target_tilt: 0.,
 		},
 	));
 	Ok(res)
@@ -879,20 +951,21 @@ struct Map
 	rng: StdRng,
 	player: hecs::Entity,
 	player_pos: Point3<f32>,
-    zoom: f32,
+	zoom: f32,
 	mouse_entity: Option<hecs::Entity>,
 	dock_entity: Option<hecs::Entity>,
 	buffer_width: f32,
 	buffer_height: f32,
 	mouse_in_buffer: bool,
 	cells: Vec<Cell>,
+	money: i32,
 }
 
 impl Map
 {
 	fn new(state: &mut game_state::GameState) -> Result<Self>
 	{
-		let rng = StdRng::seed_from_u64(thread_rng().gen::<u16>() as u64);
+		let mut rng = StdRng::seed_from_u64(thread_rng().gen::<u16>() as u64);
 		let mut world = hecs::World::new();
 
 		let player = make_player(Point3::new(30., 0., 0.), &mut world, state)?;
@@ -902,12 +975,12 @@ impl Map
 		{
 			for x in -CELL_RADIUS..=CELL_RADIUS
 			{
-				cells.push(Cell::new(Point2::new(x, y), &mut world, state)?);
+				cells.push(Cell::new(Point2::new(x, y), &mut rng, &mut world, state)?);
 			}
 		}
 
-        state.cache_bitmap("data/english_flag.png")?;
-        state.cache_bitmap("data/french_flag.png")?;
+		state.cache_bitmap("data/english_flag.png")?;
+		state.cache_bitmap("data/french_flag.png")?;
 
 		Ok(Self {
 			world: world,
@@ -920,7 +993,8 @@ impl Map
 			mouse_in_buffer: true,
 			dock_entity: None,
 			cells: cells,
-            zoom: 1.,
+			zoom: 1.,
+			money: 100,
 		})
 	}
 
@@ -1009,8 +1083,12 @@ impl Map
 
 		for cell_center in new_cell_centers
 		{
-			self.cells
-				.push(Cell::new(cell_center, &mut self.world, state)?);
+			self.cells.push(Cell::new(
+				cell_center,
+				&mut self.rng,
+				&mut self.world,
+				state,
+			)?);
 		}
 
 		// Collision.
@@ -1061,6 +1139,20 @@ impl Map
 			{
 				to_die.push(id);
 			}
+		}
+
+		// Tilt.
+		for (_, (tilt, ship_state)) in self
+			.world
+			.query::<(&mut comps::Tilt, &comps::ShipState)>()
+			.iter()
+		{
+			tilt.target_tilt = state.time().sin() as f32 * PI / 4.;
+			if ship_state.hull <= 0.
+			{
+				tilt.target_tilt -= PI / 2.;
+			}
+			tilt.tilt += 0.1 * dt * (tilt.target_tilt - tilt.tilt);
 		}
 
 		// Collision resolution.
@@ -1193,10 +1285,11 @@ impl Map
 		let want_stop = state.controls.get_action_state(controls::Action::Stop) > 0.5;
 		let want_queue = state.controls.get_action_state(controls::Action::Queue) > 0.5;
 		let want_action_1 = state.controls.get_action_state(controls::Action::Action1) > 0.5;
-        let want_zoom_in = state.controls.get_action_state(controls::Action::ZoomIn) > 0.5;
-        let want_zoom_out = state.controls.get_action_state(controls::Action::ZoomOut) > 0.5;
-		if want_move && mouse_in_buffer && player_alive && self.dock_entity.is_none()
+		let want_zoom_in = state.controls.get_action_state(controls::Action::ZoomIn) > 0.5;
+		let want_zoom_out = state.controls.get_action_state(controls::Action::ZoomOut) > 0.5;
+		if want_move && mouse_in_buffer && player_alive
 		{
+			self.dock_entity = None;
 			state.controls.clear_action_state(controls::Action::Move);
 			let marker = make_target(mouse_ground_pos, &mut self.world, state)?;
 			let despawn;
@@ -1265,24 +1358,17 @@ impl Map
 						self.dock_entity = Some(mouse_entity);
 					}
 				}
-				if let Some(dock_entity) = self.dock_entity
-				{
-					if let Ok(mut target) = self.world.get::<&mut comps::Target>(dock_entity)
-					{
-						target.clear(|m| to_die.push(m));
-					}
-				}
 			}
 		}
-        if want_zoom_in
-        {
-            self.zoom *= 1.25;
-        }
-        if want_zoom_out
-        {
-            self.zoom /= 1.25;
-        }
-        self.zoom = utils::clamp(self.zoom, 1., 4.);
+		if want_zoom_in
+		{
+			self.zoom *= 1.25;
+		}
+		if want_zoom_out
+		{
+			self.zoom /= 1.25;
+		}
+		self.zoom = utils::clamp(self.zoom, 1., 4.);
 
 		// Equipment actions
 		let mut spawn_projectiles = vec![];
@@ -1441,6 +1527,11 @@ impl Map
 			{
 				continue;
 			}
+			if Some(id) == self.dock_entity
+			{
+				target.clear(|m| to_die.push(m));
+				continue;
+			}
 			match ai.state
 			{
 				comps::AIState::Idle =>
@@ -1483,72 +1574,92 @@ impl Map
 				}
 				comps::AIState::Pursuing(target_entity) =>
 				{
-					if self
-						.world
-						.get::<&comps::ShipState>(target_entity)
-						.map(|other_ship_state| !other_ship_state.team.is_enemy(&ship_state.team))
-						.unwrap_or(false)
+					if self.world.contains(target_entity)
 					{
-						ai.state = comps::AIState::Idle;
-					}
-					else
-					{
-						let target_pos = self.world.get::<&comps::Position>(target_entity).unwrap();
-						let diff = pos.pos - target_pos.pos;
-						if diff.magnitude() < 20.
-						{
-							target.clear(|m| to_die.push(m));
-							ai.state = comps::AIState::Attacking(target_entity);
-						}
-						else if diff.magnitude() > 30.
+						if self
+							.world
+							.get::<&comps::ShipState>(target_entity)
+							.map(|other_ship_state| {
+								!other_ship_state.team.is_enemy(&ship_state.team)
+							})
+							.unwrap_or(false)
 						{
 							ai.state = comps::AIState::Idle;
 						}
-						else if Some(id) != self.dock_entity
+						else
 						{
-							target.clear(|m| to_die.push(m));
-							target.waypoints.push(comps::Waypoint {
-								pos: target_pos.pos,
-								marker: None,
-							})
+							let target_pos =
+								self.world.get::<&comps::Position>(target_entity).unwrap();
+							let diff = pos.pos - target_pos.pos;
+							if diff.magnitude() < 20.
+							{
+								target.clear(|m| to_die.push(m));
+								ai.state = comps::AIState::Attacking(target_entity);
+							}
+							else if diff.magnitude() > 30.
+							{
+								ai.state = comps::AIState::Idle;
+							}
+							else if Some(id) != self.dock_entity
+							{
+								target.clear(|m| to_die.push(m));
+								target.waypoints.push(comps::Waypoint {
+									pos: target_pos.pos,
+									marker: None,
+								})
+							}
 						}
+					}
+					else
+					{
+						ai.state = comps::AIState::Idle;
 					}
 				}
 				comps::AIState::Attacking(target_entity) =>
 				{
-					if self
-						.world
-						.get::<&comps::ShipState>(target_entity)
-						.map(|other_ship_state| !other_ship_state.team.is_enemy(&ship_state.team))
-						.unwrap_or(false)
+					if self.world.contains(target_entity)
 					{
-						ai.state = comps::AIState::Idle;
-						equipment.want_action_1 = false;
-					}
-					else
-					{
-						let target_pos = self.world.get::<&comps::Position>(target_entity).unwrap();
-						let diff = target_pos.pos - pos.pos;
-						if diff.magnitude() > 20.
+						if self
+							.world
+							.get::<&comps::ShipState>(target_entity)
+							.map(|other_ship_state| {
+								!other_ship_state.team.is_enemy(&ship_state.team)
+							})
+							.unwrap_or(false)
 						{
-							ai.state = comps::AIState::Pursuing(target_entity);
+							ai.state = comps::AIState::Idle;
 							equipment.want_action_1 = false;
 						}
 						else
 						{
-							if target.waypoints.is_empty() && Some(id) != self.dock_entity
+							let target_pos =
+								self.world.get::<&comps::Position>(target_entity).unwrap();
+							let diff = target_pos.pos - pos.pos;
+							if diff.magnitude() > 20.
 							{
-								let theta = [-PI / 3., PI / 3.].choose(&mut self.rng).unwrap();
-								let rot = Rotation2::new(*theta);
-								let new_disp = rot * diff.zx() * 2.;
-								target.waypoints.push(comps::Waypoint {
-									pos: pos.pos + Vector3::new(new_disp.y, 0., new_disp.x),
-									marker: None,
-								});
+								ai.state = comps::AIState::Pursuing(target_entity);
+								equipment.want_action_1 = false;
 							}
-							equipment.want_action_1 = true;
-							equipment.target_pos = target_pos.pos;
+							else
+							{
+								if target.waypoints.is_empty() && Some(id) != self.dock_entity
+								{
+									let theta = [-PI / 3., PI / 3.].choose(&mut self.rng).unwrap();
+									let rot = Rotation2::new(*theta);
+									let new_disp = rot * diff.zx() * 2.;
+									target.waypoints.push(comps::Waypoint {
+										pos: pos.pos + Vector3::new(new_disp.y, 0., new_disp.x),
+										marker: None,
+									});
+								}
+								equipment.want_action_1 = true;
+								equipment.target_pos = target_pos.pos;
+							}
 						}
+					}
+					else
+					{
+						ai.state = comps::AIState::Idle;
 					}
 				}
 			}
@@ -1659,44 +1770,49 @@ impl Map
 			.query::<(&comps::Position, &comps::Mesh)>()
 			.iter()
 		{
-			let shift = Isometry3::new(pos.pos.coords, pos.dir * Vector3::y());
-			state.core.use_transform(&utils::mat4_to_transform(
-				camera.to_homogeneous() * shift.to_homogeneous(),
-			));
-			state.core.set_shader_transform(
-				"model_matrix",
-				&utils::mat4_to_transform(shift.to_homogeneous()),
-			).ok();
+			let mut shift = Isometry3::new(pos.pos.coords, pos.dir * Vector3::y()).to_homogeneous();
+			if let Ok(tilt) = self.world.get::<&comps::Tilt>(id)
+			{
+				shift = shift
+					* Rotation3::from_axis_angle(&Vector3::x_axis(), tilt.tilt).to_homogeneous();
+			}
 
-            let flag_mapper = |material_name: &str, texture_name: &str| -> Option<&Bitmap>
-            {
-                if material_name == "flag_material"
-                {
-                    if let Ok(ship_state) = self.world.get::<&comps::ShipState>(id)
-                    {
-                        let texture_name = match ship_state.team
-                        {
-                            comps::Team::English => "data/english_flag.png",
-                            comps::Team::French => "data/french_flag.png",
-                            _ => texture_name,
-                        };
-                        state.get_bitmap(texture_name)
-                    }
-                    else
-                    {
-                        state.get_bitmap(texture_name)
-                    }
-                }
-                else
-                {
-                    state.get_bitmap(texture_name)
-                }
-            };
+			state
+				.core
+				.use_transform(&utils::mat4_to_transform(camera.to_homogeneous() * shift));
+			state
+				.core
+				.set_shader_transform("model_matrix", &utils::mat4_to_transform(shift))
+				.ok();
+
+			let flag_mapper = |material_name: &str, texture_name: &str| -> Option<&Bitmap> {
+				if material_name == "flag_material"
+				{
+					if let Ok(ship_state) = self.world.get::<&comps::ShipState>(id)
+					{
+						let texture_name = match ship_state.team
+						{
+							comps::Team::English => "data/english_flag.png",
+							comps::Team::French => "data/french_flag.png",
+							_ => texture_name,
+						};
+						state.get_bitmap(texture_name)
+					}
+					else
+					{
+						state.get_bitmap(texture_name)
+					}
+				}
+				else
+				{
+					state.get_bitmap(texture_name)
+				}
+			};
 
 			state
 				.get_mesh(&mesh.mesh)
 				.unwrap()
-				.draw(&state.prim, flag_mapper)//|s| state.get_bitmap(s));
+				.draw(&state.prim, flag_mapper) //|s| state.get_bitmap(s));
 		}
 
 		let (dw, dh) = (self.buffer_width, self.buffer_height);
@@ -1805,6 +1921,14 @@ impl Map
 					draw_ship_state(&*ship_state, dw - 100., dh - 32., state);
 				}
 			}
+			state.core.draw_text(
+				&state.ui_font,
+				Color::from_rgb_f(1., 1., 1.),
+				dw / 2.0,
+				16.,
+				FontAlign::Centre,
+				&format!("Money: ${}", self.money),
+			);
 		}
 
 		Ok(())

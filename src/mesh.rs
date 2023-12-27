@@ -109,7 +109,9 @@ impl MultiMesh
 		Ok(Self { meshes: meshes })
 	}
 
-	pub fn draw<'l, T: Fn(&str, &str) -> Option<&'l Bitmap>>(&self, prim: &PrimitivesAddon, bitmap_fn: T)
+	pub fn draw<'l, T: Fn(&str, &str) -> Option<&'l Bitmap>>(
+		&self, prim: &PrimitivesAddon, bitmap_fn: T,
+	)
 	{
 		for mesh in self.meshes.iter()
 		{

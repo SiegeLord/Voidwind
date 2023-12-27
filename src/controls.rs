@@ -12,8 +12,8 @@ pub enum Action
 	Action1,
 	Inventory,
 	Dock,
-    ZoomOut,
-    ZoomIn,
+	ZoomOut,
+	ZoomIn,
 }
 
 impl Action
@@ -28,8 +28,8 @@ impl Action
 			Action::Action1 => "Action1",
 			Action::Inventory => "Inventory",
 			Action::Dock => "Dock",
-            Action::ZoomOut => "ZoomOut",
-            Action::ZoomIn => "ZoomIn",
+			Action::ZoomOut => "ZoomOut",
+			Action::ZoomIn => "ZoomIn",
 		}
 	}
 }
@@ -494,14 +494,8 @@ impl Controls
 			Action::Dock,
 			[Some(Input::Keyboard(allegro::KeyCode::D)), None],
 		);
-		action_to_inputs.insert(
-			Action::ZoomIn,
-			[Some(Input::MouseZPos), None],
-		);
-		action_to_inputs.insert(
-			Action::ZoomOut,
-			[Some(Input::MouseZNeg), None],
-		);
+		action_to_inputs.insert(Action::ZoomIn, [Some(Input::MouseZPos), None]);
+		action_to_inputs.insert(Action::ZoomOut, [Some(Input::MouseZNeg), None]);
 
 		Self {
 			action_to_inputs: action_to_inputs,
@@ -670,7 +664,7 @@ impl ControlsHandler
 				{
 					if let Some(state) = self.input_state.get_mut(&Input::MouseZNeg)
 					{
-                        // Is the lack of sensitivity here a hack?
+						// Is the lack of sensitivity here a hack?
 						state.push(-*dz as f32);
 						state.push(0.);
 					}

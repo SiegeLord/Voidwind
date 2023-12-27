@@ -6,21 +6,28 @@ use rand::prelude::*;
 
 use std::f32::consts::PI;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Position
 {
 	pub pos: Point3<f32>,
 	pub dir: f32,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
+pub struct Tilt
+{
+	pub tilt: f32,
+	pub target_tilt: f32,
+}
+
+#[derive(Copy, Clone, Debug)]
 pub struct Velocity
 {
 	pub vel: Vector3<f32>,
 	pub dir_vel: f32,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Waypoint
 {
 	pub pos: Point3<f32>,
@@ -163,6 +170,7 @@ impl ItemKind
 pub struct Item
 {
 	pub kind: ItemKind,
+	pub price: i32,
 }
 
 #[derive(Clone, Debug)]

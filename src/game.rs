@@ -19,11 +19,7 @@ use std::f32::consts::PI;
 static CELL_SIZE: i32 = 128;
 static CELL_RADIUS: i32 = 2;
 const SLOT_WIDTH: f32 = 32.;
-
-fn crew_cost(experience: f32) -> i32
-{
-	(20. * (experience + 1.)) as i32
-}
+const CREW_COST: i32 = 20;
 
 #[derive(Clone)]
 pub struct Button
@@ -156,7 +152,7 @@ impl Cell
 			.unwrap();
 		let team = comps::Team::English;
 
-		let ship = make_ship(world_center, &ship_stats, team, 0., world, state)?;
+		let ship = make_ship(world_center, &ship_stats, team, 1, world, state)?;
 
 		world.insert_one(
 			ship,
@@ -810,7 +806,7 @@ impl EquipmentScreen
 						Point2::new(state.display_width / 3. - 64., 64.),
 						Vector2::new(64., 64.),
 						false,
-						format!("Recruit ${}", crew_cost(dock_state.experience)),
+						format!("Recruit ${}", CREW_COST),
 					));
 				}
 			}
@@ -1014,17 +1010,17 @@ impl EquipmentScreen
 					)
 					{
 						if dock_state.crew > dock_stats.crew * 2 / 3
-							&& map.money >= crew_cost(dock_state.experience)
-							&& player_state.crew < player_stats.crew
+							&& map.money >= CREW_COST && player_state.crew < player_stats.crew
 						{
 							let player_count = (player_state.crew + player_state.wounded) as f32;
-							let new_experience = (player_count * player_state.experience
-								+ dock_state.experience) / (player_count + 1.);
+							let new_experience =
+								(player_count * player_state.experience + 1.) / (player_count + 1.);
 							dock_state.crew -= 1;
 							player_state.crew += 1;
 							player_state.experience = new_experience;
+							player_state.compute_level();
 							dbg!(player_state.experience);
-							map.money -= crew_cost(dock_state.experience);
+							map.money -= CREW_COST;
 						}
 					}
 				}
@@ -1249,9 +1245,18 @@ fn draw_ship_state(
 {
 	let mut y = y;
 
-	y += 32.;
-
 	let lh = state.ui_font.get_line_height() as f32;
+
+	state.core.draw_text(
+		&state.ui_font,
+		Color::from_rgb_f(1., 1., 1.),
+		x + 64.,
+		y - lh / 2. - 48.,
+		FontAlign::Centre,
+		&format!("Crew Level: {}", ship_state.level),
+	);
+
+	y += 32.;
 
 	for (i, (armor, armor_max)) in ship_state.armor.iter().zip(stats.armor.iter()).enumerate()
 	{
@@ -1377,7 +1382,7 @@ fn make_projectile(
 }
 
 fn make_ship(
-	pos: Point3<f32>, stats: &comps::ShipStats, team: comps::Team, experience: f32,
+	pos: Point3<f32>, stats: &comps::ShipStats, team: comps::Team, level: i32,
 	world: &mut hecs::World, state: &mut game_state::GameState,
 ) -> Result<hecs::Entity>
 {
@@ -1456,7 +1461,7 @@ fn make_ship(
 			parent: None,
 		},
 		equipment,
-		comps::ShipState::new(stats, team, experience),
+		comps::ShipState::new(stats, team, level),
 		comps::Tilt {
 			tilt: 0.,
 			target_tilt: 0.,
@@ -1509,20 +1514,21 @@ impl Map
 			Point3::new(30., 0., 0.),
 			&ship_stats,
 			comps::Team::English,
-			0.,
+			1,
 			&mut world,
 			state,
 		)?;
 		{
 			let mut ship_state = world.get::<&mut comps::ShipState>(player).unwrap();
 			//ship_state.hull = 10.;
-			ship_state.crew = 10;
+			ship_state.crew = 1;
 			//ship_state.wounded = 0;
 			//ship_state.infirmary = 0.;
 			//ship_state.sails = 30.;
 			//ship_state.armor[0] = 50.;
 			//ship_state.armor[1] = 0.;
-			ship_state.experience = 1.;
+			ship_state.level = 3;
+			ship_state.experience = comps::level_experience(3);
 		}
 
 		let mut cells = vec![];
@@ -1549,7 +1555,7 @@ impl Map
 			dock_entity: None,
 			cells: cells,
 			zoom: 1.,
-			money: 100,
+			money: 1000,
 		})
 	}
 
@@ -1712,7 +1718,10 @@ impl Map
 				continue;
 			}
 
-			let effective_crew = ship_state.crew as f32 * (1. + ship_state.experience);
+			ship_state.compute_level();
+
+			let effective_crew =
+				ship_state.crew as f32 * comps::level_effectiveness(ship_state.level);
 
 			// Each crew member can repair 0.1 point per 1 second, probabilistically
 			let repair_prob = dt as f64;
@@ -1796,19 +1805,21 @@ impl Map
 				{
 					match &item.kind
 					{
-						comps::ItemKind::Weapon(_) =>
+						comps::ItemKind::Weapon(weapon) =>
 						{
-							num_weapons += 1;
+							if weapon.readiness < 1.
+							{
+								num_weapons += 1;
+							}
 						}
 					}
 				}
 			}
-			ship_state.num_weapons = num_weapons;
 
 			// X crew per weapon to reload it effectively.
 			let crew_per_weapon = 10;
 			let fire_rate_adjustment =
-				1. / crew_per_weapon as f32 * effective_crew / ship_state.num_weapons as f32;
+				1. / crew_per_weapon as f32 * effective_crew / num_weapons as f32;
 			for slot in &mut equipment.slots
 			{
 				if slot.is_inventory
@@ -1968,7 +1979,8 @@ impl Map
 
 		let mouse_in_buffer = self.mouse_in_buffer;
 		let mouse_ground_pos = self.get_mouse_ground_pos(state);
-		if mouse_in_buffer && (want_move || want_dock || want_action_1 || want_board)
+		if mouse_in_buffer
+		// && (want_move || want_dock || want_action_1 || want_board)
 		{
 			let mouse_entries = grid.query_rect(
 				mouse_ground_pos.zx() - Vector2::new(0.1, 0.1) - center.coords,
@@ -2032,6 +2044,13 @@ impl Map
 			{
 				equipment.want_action_1 = true;
 				equipment.target_pos = mouse_ground_pos;
+			}
+		}
+		if !want_action_1
+		{
+			if let Ok(mut equipment) = self.world.get::<&mut comps::Equipment>(self.player)
+			{
+				equipment.want_action_1 = false;
 			}
 		}
 		if want_dock && player_alive && self.target_entity != Some(self.player)
@@ -2119,7 +2138,7 @@ impl Map
 		{
 			// No buffering
 			let want_action_1 = equipment.want_action_1;
-			equipment.want_action_1 = false;
+			//equipment.want_action_1 = false;
 			for slot in &mut equipment.slots
 			{
 				if slot.is_inventory
@@ -2132,7 +2151,8 @@ impl Map
 					{
 						comps::ItemKind::Weapon(weapon) =>
 						{
-							if weapon.readiness >= 1.0 && want_action_1
+							if weapon.readiness >= 1.0
+								&& want_action_1 && weapon.time_to_fire.is_none()
 							{
 								weapon.time_to_fire =
 									Some(state.time() + self.rng.gen_range(0.0..0.2));
@@ -2239,8 +2259,8 @@ impl Map
 					view.get_mut_n([src_id, target_id])
 				{
 					// Attackers advantage + bias for the experience.
-					let src_strength = src_ship_state.experience + 1. + 0.5;
-					let target_strength = target_ship_state.experience + 1.;
+					let src_strength = comps::level_effectiveness(src_ship_state.level) + 0.5;
+					let target_strength = comps::level_effectiveness(target_ship_state.level);
 					let attack_prob = (src_strength / (src_strength + target_strength)) as f64;
 					if self.rng.gen_bool(attack_prob)
 					{

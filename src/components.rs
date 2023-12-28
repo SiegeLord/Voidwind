@@ -6,6 +6,16 @@ use rand::prelude::*;
 
 use std::f32::consts::PI;
 
+pub fn level_effectiveness(level: i32) -> f32
+{
+	(level as f32).powf(0.5)
+}
+
+pub fn level_experience(level: i32) -> f32
+{
+	(level as f32).powf(3.)
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct Position
 {
@@ -283,12 +293,12 @@ pub struct ShipState
 	pub crew: i32,
 	pub wounded: i32,
 	pub experience: f32,
+	pub level: i32,
 	pub team: Team,
 	pub sails: f32,
 	pub infirmary: f32,
 	pub armor: [f32; 4], // front, right, back, left
 
-	pub num_weapons: i32,
 	pub repair_boost: Vec<usize>,
 	pub board_entity: Option<hecs::Entity>,
 	pub time_to_board: f64,
@@ -296,18 +306,18 @@ pub struct ShipState
 
 impl ShipState
 {
-	pub fn new(stats: &ShipStats, team: Team, experience: f32) -> Self
+	pub fn new(stats: &ShipStats, team: Team, level: i32) -> Self
 	{
 		Self {
 			hull: stats.hull,
 			crew: stats.crew,
 			wounded: 0,
 			team: team,
-			experience: experience,
+			experience: level_experience(level),
+			level: level,
 			sails: stats.sails,
 			infirmary: stats.infirmary,
 			armor: stats.armor,
-			num_weapons: 0,
 			repair_boost: vec![],
 			board_entity: None,
 			time_to_board: 0.,
@@ -368,6 +378,16 @@ impl ShipState
 		{
 			(false, 0.)
 		}
+	}
+
+	pub fn compute_level(&mut self)
+	{
+		let mut level = 1;
+		while level_experience(level) < self.experience
+		{
+			level += 1;
+		}
+		self.level = level;
 	}
 
 	pub fn is_active(&self) -> bool

@@ -16,9 +16,14 @@ use std::collections::HashMap;
 
 use std::f32::consts::PI;
 
-static CELL_SIZE: i32 = 64;
+static CELL_SIZE: i32 = 128;
 static CELL_RADIUS: i32 = 2;
 const SLOT_WIDTH: f32 = 32.;
+
+fn crew_cost(experience: f32) -> i32
+{
+	(20. * (experience + 1.)) as i32
+}
 
 #[derive(Clone)]
 pub struct Button
@@ -146,16 +151,12 @@ impl Cell
 			dir_speed: 1.,
 		};
 
-		let ship = make_ship(
-			world_center,
-			&ship_stats,
-			*[comps::Team::English, comps::Team::French]
-				.choose(rng)
-				.unwrap(),
-			0.,
-			world,
-			state,
-		)?;
+		let team = *[comps::Team::English, comps::Team::French]
+			.choose(rng)
+			.unwrap();
+		let team = comps::Team::English;
+
+		let ship = make_ship(world_center, &ship_stats, team, 0., world, state)?;
 
 		world.insert_one(
 			ship,
@@ -164,6 +165,7 @@ impl Cell
 			},
 		)?;
 		//world.get::<&mut comps::ShipState>(ship).unwrap().crew = 0;
+		//world.get::<&mut comps::ShipState>(ship).unwrap().hull = 0.;
 
 		Ok(Self { center: center })
 	}
@@ -400,13 +402,13 @@ impl HUD
 			draw_ship_state(&*ship_state, &*stats, status_pos.x, status_pos.y, state);
 		}
 
-		if let Some(mouse_entity) = map.mouse_entity
+		if let Some(target_entity) = map.target_entity
 		{
-			if map.mouse_entity != Some(map.player)
+			if map.target_entity != Some(map.player)
 			{
 				if let (Ok(ship_state), Ok(stats)) = (
-					map.world.get::<&comps::ShipState>(mouse_entity),
-					map.world.get::<&comps::ShipStats>(mouse_entity),
+					map.world.get::<&comps::ShipState>(target_entity),
+					map.world.get::<&comps::ShipStats>(target_entity),
 				)
 				{
 					draw_ship_state(&*ship_state, &*stats, 16., dh - 256., state);
@@ -666,6 +668,7 @@ struct EquipmentScreen
 	dragged_item: Option<(usize, i32, comps::Item)>,
 
 	switch_ships: Option<Button>,
+	recruit: Option<Button>,
 }
 
 impl EquipmentScreen
@@ -680,6 +683,7 @@ impl EquipmentScreen
 			mouse_button_down: false,
 			ctrl_down: false,
 			switch_ships: None,
+			recruit: None,
 		}
 	}
 
@@ -710,6 +714,10 @@ impl EquipmentScreen
 	fn input(&mut self, event: &Event, map: &mut Map, state: &mut game_state::GameState) -> bool
 	{
 		if let Some(button) = self.switch_ships.as_mut()
+		{
+			button.input(event);
+		}
+		if let Some(button) = self.recruit.as_mut()
 		{
 			button.input(event);
 		}
@@ -776,20 +784,51 @@ impl EquipmentScreen
 
 	fn logic(&mut self, map: &mut Map, state: &game_state::GameState) -> bool
 	{
-		if map.dock_entity.is_some() && self.switch_ships.is_none()
+		if map.dock_entity.is_some() && (self.switch_ships.is_none() && self.recruit.is_none())
 		{
-			self.switch_ships = Some(Button::new(
-				Point2::new(state.display_width / 3. - 64., 64.),
-				Vector2::new(64., 64.),
-				false,
-				"Switch".into(),
-			));
+			if let (Ok(dock_state), Ok(player_state)) = (
+				map.world.get::<&comps::ShipState>(map.dock_entity.unwrap()),
+				map.world.get::<&comps::ShipState>(map.player),
+			)
+			{
+				if dock_state.hull > 0. && dock_state.team != player_state.team
+				{
+					dbg!("switch");
+
+					self.switch_ships = Some(Button::new(
+						Point2::new(state.display_width / 3. - 64., 64.),
+						Vector2::new(64., 64.),
+						false,
+						"Switch".into(),
+					));
+				}
+				if dock_state.team == player_state.team
+				{
+					dbg!("recruit");
+
+					self.recruit = Some(Button::new(
+						Point2::new(state.display_width / 3. - 64., 64.),
+						Vector2::new(64., 64.),
+						false,
+						format!("Recruit ${}", crew_cost(dock_state.experience)),
+					));
+				}
+			}
 		}
 		else if map.dock_entity.is_none()
 		{
 			self.switch_ships = None;
+			self.recruit = None;
 		}
 		let do_switch = if let Some(button) = self.switch_ships.as_mut()
+		{
+			button.logic()
+		}
+		else
+		{
+			false
+		};
+		let do_recruit = if let Some(button) = self.recruit.as_mut()
 		{
 			button.logic()
 		}
@@ -945,7 +984,7 @@ impl EquipmentScreen
 				}
 			}
 		}
-		if do_switch
+		if do_switch || do_recruit
 		{
 			let mut query = map.world.query::<&mut comps::ShipState>();
 			let mut view = query.view();
@@ -954,21 +993,49 @@ impl EquipmentScreen
 			if let (Some(dock_state), Some(player_state)) =
 				(dock_state.as_mut(), player_state.as_mut())
 			{
-				let player_crew = player_state.crew;
-				let player_wounded = player_state.wounded;
-				player_state.crew = dock_state.crew;
-				player_state.wounded = dock_state.wounded;
-				dock_state.crew = player_crew;
-				dock_state.wounded = player_wounded;
+				if do_switch
+				{
+					let player_crew = player_state.crew;
+					let player_wounded = player_state.wounded;
+					player_state.crew = dock_state.crew;
+					player_state.wounded = dock_state.wounded;
+					dock_state.crew = player_crew;
+					dock_state.wounded = player_wounded;
 
-				let player_team = player_state.team;
-				player_state.team = dock_state.team;
-				dock_state.team = player_team;
+					let player_team = player_state.team;
+					player_state.team = dock_state.team;
+					dock_state.team = player_team;
+				}
+				if do_recruit
+				{
+					if let (Ok(dock_stats), Ok(player_stats)) = (
+						map.world.get::<&comps::ShipStats>(map.dock_entity.unwrap()),
+						map.world.get::<&comps::ShipStats>(map.player),
+					)
+					{
+						if dock_state.crew > dock_stats.crew * 2 / 3
+							&& map.money >= crew_cost(dock_state.experience)
+							&& player_state.crew < player_stats.crew
+						{
+							let player_count = (player_state.crew + player_state.wounded) as f32;
+							let new_experience = (player_count * player_state.experience
+								+ dock_state.experience) / (player_count + 1.);
+							dock_state.crew -= 1;
+							player_state.crew += 1;
+							player_state.experience = new_experience;
+							dbg!(player_state.experience);
+							map.money -= crew_cost(dock_state.experience);
+						}
+					}
+				}
 			}
 
-			let player = map.player;
-			map.player = map.dock_entity.unwrap();
-			map.dock_entity = Some(player);
+			if do_switch
+			{
+				let player = map.player;
+				map.player = map.dock_entity.unwrap();
+				map.dock_entity = Some(player);
+			}
 		}
 		!over_ui
 	}
@@ -1158,6 +1225,10 @@ impl EquipmentScreen
 		}
 
 		if let Some(button) = self.switch_ships.as_ref()
+		{
+			button.draw(state);
+		}
+		if let Some(button) = self.recruit.as_ref()
 		{
 			button.draw(state);
 		}
@@ -1408,7 +1479,7 @@ struct Map
 	player: hecs::Entity,
 	player_pos: Point3<f32>,
 	zoom: f32,
-	mouse_entity: Option<hecs::Entity>,
+	target_entity: Option<hecs::Entity>,
 	dock_entity: Option<hecs::Entity>,
 	buffer_width: f32,
 	buffer_height: f32,
@@ -1443,15 +1514,15 @@ impl Map
 			state,
 		)?;
 		{
-			//let mut ship_state = world.get::<&mut comps::ShipState>(player).unwrap();
-			//ship_state.hull = 50.;
-			//ship_state.crew = 20;
+			let mut ship_state = world.get::<&mut comps::ShipState>(player).unwrap();
+			//ship_state.hull = 10.;
+			ship_state.crew = 10;
 			//ship_state.wounded = 0;
 			//ship_state.infirmary = 0.;
 			//ship_state.sails = 30.;
 			//ship_state.armor[0] = 50.;
 			//ship_state.armor[1] = 0.;
-			//ship_state.experience = 0.;
+			ship_state.experience = 1.;
 		}
 
 		let mut cells = vec![];
@@ -1471,7 +1542,7 @@ impl Map
 			rng: rng,
 			player_pos: Point3::new(0., 0., 0.),
 			player: player,
-			mouse_entity: None,
+			target_entity: None,
 			buffer_width: state.display_width,
 			buffer_height: state.display_height,
 			mouse_in_buffer: true,
@@ -1880,10 +1951,24 @@ impl Map
 			}
 		}
 
-		// Mouse hover.
+		// Player Input
+		let player_alive = self
+			.world
+			.get::<&comps::ShipState>(self.player)
+			.map(|s| s.is_active())
+			.unwrap_or(false);
+		let want_move = state.controls.get_action_state(controls::Action::Move) > 0.5;
+		let want_dock = state.controls.get_action_state(controls::Action::Dock) > 0.5;
+		let want_stop = state.controls.get_action_state(controls::Action::Stop) > 0.5;
+		let want_queue = state.controls.get_action_state(controls::Action::Queue) > 0.5;
+		let want_action_1 = state.controls.get_action_state(controls::Action::Action1) > 0.5;
+		let want_zoom_in = state.controls.get_action_state(controls::Action::ZoomIn) > 0.5;
+		let want_zoom_out = state.controls.get_action_state(controls::Action::ZoomOut) > 0.5;
+		let want_board = state.controls.get_action_state(controls::Action::Board) > 0.5;
+
 		let mouse_in_buffer = self.mouse_in_buffer;
 		let mouse_ground_pos = self.get_mouse_ground_pos(state);
-		if mouse_in_buffer
+		if mouse_in_buffer && (want_move || want_dock || want_action_1 || want_board)
 		{
 			let mouse_entries = grid.query_rect(
 				mouse_ground_pos.zx() - Vector2::new(0.1, 0.1) - center.coords,
@@ -1901,29 +1986,16 @@ impl Map
 				{
 					if (pos.pos - mouse_ground_pos).magnitude() < solid.size
 					{
-						self.mouse_entity = Some(entry.inner.entity);
+						self.target_entity = Some(entry.inner.entity);
 					}
 				}
 			}
 		}
 
-		// Player Input
-		let player_alive = self
-			.world
-			.get::<&comps::ShipState>(self.player)
-			.map(|s| s.is_active())
-			.unwrap_or(false);
-		let want_move = state.controls.get_action_state(controls::Action::Move) > 0.5;
-		let want_dock = state.controls.get_action_state(controls::Action::Dock) > 0.5;
-		let want_stop = state.controls.get_action_state(controls::Action::Stop) > 0.5;
-		let want_queue = state.controls.get_action_state(controls::Action::Queue) > 0.5;
-		let want_action_1 = state.controls.get_action_state(controls::Action::Action1) > 0.5;
-		let want_zoom_in = state.controls.get_action_state(controls::Action::ZoomIn) > 0.5;
-		let want_zoom_out = state.controls.get_action_state(controls::Action::ZoomOut) > 0.5;
 		if want_move && mouse_in_buffer && player_alive
 		{
-			self.dock_entity = None;
 			state.controls.clear_action_state(controls::Action::Move);
+			self.dock_entity = None;
 			let marker = make_target(mouse_ground_pos, &mut self.world, state)?;
 			let despawn;
 			if let Ok(mut target) = self.world.get::<&mut comps::Target>(self.player)
@@ -1962,11 +2034,11 @@ impl Map
 				equipment.target_pos = mouse_ground_pos;
 			}
 		}
-		if want_dock && player_alive && self.mouse_entity != Some(self.player)
+		if want_dock && player_alive && self.target_entity != Some(self.player)
 		{
 			state.controls.clear_action_state(controls::Action::Dock);
 			self.dock_entity = None;
-			if let Some(mouse_entity) = self.mouse_entity
+			if let Some(target_entity) = self.target_entity
 			{
 				if let (
 					Ok(player_pos),
@@ -1980,10 +2052,10 @@ impl Map
 					self.world.get::<&comps::Position>(self.player),
 					self.world.get::<&mut comps::Target>(self.player),
 					self.world.get::<&comps::ShipState>(self.player),
-					self.world.get::<&comps::Position>(mouse_entity),
-					self.world.get::<&comps::Equipment>(mouse_entity),
-					self.world.get::<&comps::ShipState>(mouse_entity),
-					self.world.get::<&mut comps::AI>(mouse_entity),
+					self.world.get::<&comps::Position>(target_entity),
+					self.world.get::<&comps::Equipment>(target_entity),
+					self.world.get::<&comps::ShipState>(target_entity),
+					self.world.get::<&mut comps::AI>(target_entity),
 				)
 				{
 					if ship_state.team.dock_with(&player_ship_state.team)
@@ -1997,10 +2069,35 @@ impl Map
 						if (player_pos.pos.zx() - pos.pos.zx()).magnitude() < 10.0
 						{
 							player_target.clear(|m| to_die.push(m));
-							self.dock_entity = Some(mouse_entity);
+							self.dock_entity = Some(target_entity);
 						}
 					}
 				}
+			}
+		}
+		if want_board
+			&& player_alive
+			&& self.target_entity != Some(self.player)
+			&& self.target_entity.is_some()
+		{
+			let target_entity = self.target_entity.unwrap();
+
+			let mut query = self.world.query::<&mut comps::ShipState>();
+			let mut view = query.view();
+			if let [Some(target_ship_state), Some(player_ship_state)] =
+				view.get_mut_n([target_entity, self.player])
+			{
+				if target_ship_state.team.is_enemy(&player_ship_state.team)
+				{
+					player_ship_state.board_entity = Some(target_entity);
+				}
+			}
+		}
+		if !want_board && player_alive
+		{
+			if let Ok(mut ship_state) = self.world.get::<&mut comps::ShipState>(self.player)
+			{
+				ship_state.board_entity = None;
 			}
 		}
 		if want_zoom_in
@@ -2108,6 +2205,55 @@ impl Map
 		for (spawn_pos, spawn_dir, parent, team) in spawn_projectiles
 		{
 			make_projectile(spawn_pos, spawn_dir, parent, team, &mut self.world, state)?;
+		}
+
+		// Boarding.
+		let mut board_pairs = vec![];
+		for (id, (pos, ship_state)) in self
+			.world
+			.query::<(&comps::Position, &mut comps::ShipState)>()
+			.iter()
+		{
+			if state.time() > ship_state.time_to_board
+			{
+				if let Some(board_entity) = ship_state.board_entity
+				{
+					if let Ok(target_pos) = self.world.get::<&comps::Position>(board_entity)
+					{
+						if (target_pos.pos - pos.pos).magnitude() < 10.
+						{
+							board_pairs.push((id, board_entity));
+							ship_state.time_to_board = state.time() + 0.5;
+						}
+					}
+				}
+			}
+		}
+
+		{
+			let mut query = self.world.query::<&mut comps::ShipState>();
+			let mut view = query.view();
+			for (src_id, target_id) in board_pairs
+			{
+				if let [Some(src_ship_state), Some(target_ship_state)] =
+					view.get_mut_n([src_id, target_id])
+				{
+					// Attackers advantage + bias for the experience.
+					let src_strength = src_ship_state.experience + 1. + 0.5;
+					let target_strength = target_ship_state.experience + 1.;
+					let attack_prob = (src_strength / (src_strength + target_strength)) as f64;
+					if self.rng.gen_bool(attack_prob)
+					{
+						target_ship_state.crew = (target_ship_state.crew - 1).max(0);
+						dbg!("Attackers won");
+					}
+					else
+					{
+						src_ship_state.crew = (src_ship_state.crew - 1).max(0);
+						src_ship_state.wounded += 1;
+					}
+				}
+			}
 		}
 
 		// Update player pos.

@@ -290,6 +290,8 @@ pub struct ShipState
 
 	pub num_weapons: i32,
 	pub repair_boost: Vec<usize>,
+	pub board_entity: Option<hecs::Entity>,
+	pub time_to_board: f64,
 }
 
 impl ShipState
@@ -307,6 +309,8 @@ impl ShipState
 			armor: stats.armor,
 			num_weapons: 0,
 			repair_boost: vec![],
+			board_entity: None,
+			time_to_board: 0.,
 		}
 	}
 
@@ -342,7 +346,7 @@ impl ShipState
 					1 =>
 					{
 						// Hit crew.
-						let crew_damage = (bleed_through / 10.).ceil() as i32;
+						let crew_damage = (bleed_through / 2.).ceil() as i32;
 						let old_crew = self.crew;
 						self.crew = (old_crew - crew_damage).max(0);
 						if rng.gen_bool(0.9)

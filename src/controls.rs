@@ -14,6 +14,7 @@ pub enum Action
 	Dock,
 	ZoomOut,
 	ZoomIn,
+	Board,
 }
 
 impl Action
@@ -30,6 +31,7 @@ impl Action
 			Action::Dock => "Dock",
 			Action::ZoomOut => "ZoomOut",
 			Action::ZoomIn => "ZoomIn",
+			Action::Board => "Board",
 		}
 	}
 }
@@ -496,6 +498,10 @@ impl Controls
 		);
 		action_to_inputs.insert(Action::ZoomIn, [Some(Input::MouseZPos), None]);
 		action_to_inputs.insert(Action::ZoomOut, [Some(Input::MouseZNeg), None]);
+		action_to_inputs.insert(
+			Action::Board,
+			[Some(Input::Keyboard(allegro::KeyCode::B)), None],
+		);
 
 		Self {
 			action_to_inputs: action_to_inputs,

@@ -310,19 +310,59 @@ impl ShipState
 		}
 	}
 
-	pub fn damage(&mut self, damage: &Damage) -> bool
+	pub fn damage(&mut self, damage: &Damage, dir: Vector3<f32>, rng: &mut impl Rng)
+		-> (bool, f32)
 	{
+		let dir = dir.zx().normalize();
+		let mut bleed_through = 0.;
 		if damage.team.can_damage(&self.team)
 		{
-			self.hull -= damage.damage;
-			self.crew -= 1;
-			self.hull = self.hull.max(0.);
-			self.crew = self.crew.max(0);
-			true
+			if rng.gen_bool(0.25)
+			{
+				self.sails = (self.sails - damage.damage / 2.).max(0.);
+			}
+			else
+			{
+				let armor_segment =
+					((4. * (PI + dir.y.atan2(-dir.x)) / (2. * PI)) - 0.5).round() as usize;
+				self.armor[armor_segment] = (self.armor[armor_segment] - damage.damage).max(0.);
+				let bleed_through_frac =
+					1. - (0.1 * self.armor[armor_segment] / damage.damage).min(1.);
+
+				bleed_through = damage.damage * bleed_through_frac;
+
+				self.hull = (self.hull - bleed_through).max(0.);
+
+				let weights = [2., 1., 1.];
+				match rand_distr::WeightedIndex::new(&weights)
+					.unwrap()
+					.sample(rng)
+				{
+					0 => (), // Missed internal systems.
+					1 =>
+					{
+						// Hit crew.
+						let crew_damage = (bleed_through / 10.).ceil() as i32;
+						let old_crew = self.crew;
+						self.crew = (old_crew - crew_damage).max(0);
+						if rng.gen_bool(0.9)
+						{
+							self.wounded += old_crew - self.crew;
+						}
+					}
+					2 =>
+					{
+						// Hit infirmary.
+						self.infirmary = (self.infirmary - bleed_through).max(0.);
+					}
+					_ => unreachable!(),
+				}
+			}
+			(true, bleed_through)
 		}
 		else
 		{
-			false
+			(false, 0.)
 		}
 	}
 

@@ -141,7 +141,7 @@ impl Cell
 			crew: 10,
 			sails: 30.,
 			infirmary: 20.,
-			armor: [100., 100., 100., 100.], // front, right, back, left
+			armor: [20., 20., 20., 20.], // front, right, back, left
 			speed: 10.,
 			dir_speed: 1.,
 		};
@@ -163,7 +163,7 @@ impl Cell
 				state: comps::AIState::Idle,
 			},
 		)?;
-		world.get::<&mut comps::ShipState>(ship).unwrap().crew = 0;
+		//world.get::<&mut comps::ShipState>(ship).unwrap().crew = 0;
 
 		Ok(Self { center: center })
 	}
@@ -314,16 +314,7 @@ impl HUD
 	fn draw(&self, map: &Map, state: &game_state::GameState)
 	{
 		let (dw, dh) = (self.buffer_width, self.buffer_height);
-		let ortho_mat = Matrix4::new_orthographic(0., dw, dh, 0., -1., 1.);
-		state
-			.core
-			.use_projection_transform(&utils::mat4_to_transform(ortho_mat));
-		state.core.use_transform(&Transform::identity());
-		state.core.set_depth_test(None);
-		state
-			.core
-			.use_shader(Some(&*state.default_shader.upgrade().unwrap()))
-			.unwrap();
+
 		let mut weapon_slots = vec![];
 		if let (Ok(pos), Ok(equipment)) = (
 			map.world.get::<&comps::Position>(map.player),
@@ -617,6 +608,19 @@ impl Game
 	{
 		state.core.clear_to_color(Color::from_rgb_f(0.5, 0.5, 1.));
 		self.map.draw(state)?;
+
+		let (dw, dh) = (state.display_width, state.display_height);
+		let ortho_mat = Matrix4::new_orthographic(0., dw, dh, 0., -1., 1.);
+		state
+			.core
+			.use_projection_transform(&utils::mat4_to_transform(ortho_mat));
+		state.core.use_transform(&Transform::identity());
+		state.core.set_depth_test(None);
+		state
+			.core
+			.use_shader(Some(&*state.default_shader.upgrade().unwrap()))
+			.unwrap();
+
 		if self.subscreens.is_empty()
 		{
 			self.hud.draw(&self.map, state);
@@ -1425,7 +1429,7 @@ impl Map
 			crew: 20,
 			sails: 30.,
 			infirmary: 100.,
-			armor: [100., 100., 100., 100.], // front, right, back, left
+			armor: [20., 20., 20., 20.], // front, right, back, left
 			speed: 10.,
 			dir_speed: 1.,
 		};
@@ -1439,15 +1443,15 @@ impl Map
 			state,
 		)?;
 		{
-			let mut ship_state = world.get::<&mut comps::ShipState>(player).unwrap();
-			ship_state.hull = 50.;
-			ship_state.crew = 5;
-			ship_state.wounded = 6;
-			ship_state.infirmary = 0.;
-			ship_state.sails = 0.;
-			ship_state.armor[0] = 50.;
-			ship_state.armor[1] = 0.;
-			ship_state.experience = 0.;
+			//let mut ship_state = world.get::<&mut comps::ShipState>(player).unwrap();
+			//ship_state.hull = 50.;
+			//ship_state.crew = 20;
+			//ship_state.wounded = 0;
+			//ship_state.infirmary = 0.;
+			//ship_state.sails = 30.;
+			//ship_state.armor[0] = 50.;
+			//ship_state.armor[1] = 0.;
+			//ship_state.experience = 0.;
 		}
 
 		let mut cells = vec![];
@@ -1639,11 +1643,12 @@ impl Map
 
 			let effective_crew = ship_state.crew as f32 * (1. + ship_state.experience);
 
-			// Each crew member can repair 1 point per 1 second, probabilistically
+			// Each crew member can repair 0.1 point per 1 second, probabilistically
 			let repair_prob = dt as f64;
-			let num_repaired = rand_distr::Binomial::new(effective_crew as u64, repair_prob)
-				.unwrap()
-				.sample(&mut self.rng);
+			let num_repaired =
+				rand_distr::Binomial::new((effective_crew * 0.1) as u64, repair_prob)
+					.unwrap()
+					.sample(&mut self.rng);
 
 			let mut parts = [
 				stats.armor[0] - ship_state.armor[0],
@@ -1824,13 +1829,16 @@ impl Map
 
 				if pass == 0
 				{
-					for (id, other_id) in [(id1, Some(id2)), (id2, Some(id1))]
+					for (id, other_id, pos, other_pos) in
+						[(id1, id2, pos1, pos2), (id2, id1, pos2, pos1)]
 					{
 						if let Ok(on_contact_effect) = self.world.get::<&comps::OnContactEffect>(id)
 						{
 							on_contact_effects.push((
 								id,
 								other_id,
+								pos,
+								other_pos,
 								on_contact_effect.effects.clone(),
 							));
 						}
@@ -1840,20 +1848,25 @@ impl Map
 		}
 
 		// On contact effects.
-		for (id, other_id, effects) in on_contact_effects
+		for (id, other_id, pos, other_pos, effects) in on_contact_effects
 		{
 			for effect in effects
 			{
 				match (effect, other_id)
 				{
 					(comps::ContactEffect::Die, _) => to_die.push(id),
-					(comps::ContactEffect::Hurt { damage }, Some(other_id)) =>
+					(comps::ContactEffect::Hurt { damage }, other_id) =>
 					{
 						let mut damaged = false;
+						let mut bleed_through = 0.;
 						if let Ok(mut ship_state) =
 							self.world.get::<&mut comps::ShipState>(other_id)
 						{
-							damaged = ship_state.damage(&damage);
+							(damaged, bleed_through) = ship_state.damage(
+								&damage,
+								(pos - other_pos).normalize(),
+								&mut self.rng,
+							);
 						}
 						if damaged
 						{
@@ -1863,7 +1876,6 @@ impl Map
 							}
 						}
 					}
-					_ => (),
 				}
 			}
 		}
@@ -2325,6 +2337,8 @@ impl Map
 			{
 				target.clear(|m| to_die.push(m));
 				ship_state.team = comps::Team::Neutral;
+				ship_state.crew = 0;
+				ship_state.wounded = 0;
 				remove_ai.push(id);
 			}
 		}

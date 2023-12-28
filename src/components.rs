@@ -289,6 +289,7 @@ pub struct ShipState
 	pub armor: [f32; 4], // front, right, back, left
 
 	pub num_weapons: i32,
+	pub repair_boost: Vec<usize>,
 }
 
 impl ShipState
@@ -305,6 +306,7 @@ impl ShipState
 			infirmary: stats.infirmary,
 			armor: stats.armor,
 			num_weapons: 0,
+			repair_boost: vec![],
 		}
 	}
 

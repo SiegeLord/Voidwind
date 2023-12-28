@@ -28,11 +28,12 @@ pub struct Button
 	text: String,
 	on: bool,
 	hover: bool,
+	is_toggle: bool,
 }
 
 impl Button
 {
-	fn new(loc: Point2<f32>, size: Vector2<f32>, text: String) -> Self
+	fn new(loc: Point2<f32>, size: Vector2<f32>, is_toggle: bool, text: String) -> Self
 	{
 		Self {
 			loc: loc,
@@ -40,21 +41,29 @@ impl Button
 			text: text,
 			on: false,
 			hover: false,
+			is_toggle: is_toggle,
 		}
 	}
 
 	fn logic(&mut self) -> bool
 	{
 		let old_on = self.on;
-		self.on = false;
+		if !self.is_toggle
+		{
+			self.on = false;
+		}
 		old_on
 	}
 
 	fn draw(&self, state: &game_state::GameState)
 	{
-		let color = if self.hover
+		let color = if self.on
 		{
 			Color::from_rgba_f(1.0, 1.0, 1.0, 1.0)
+		}
+		else if self.hover
+		{
+			Color::from_rgba_f(0.75, 0.75, 0.75, 1.0)
 		}
 		else
 		{
@@ -64,16 +73,17 @@ impl Button
 			&state.ui_font,
 			color,
 			self.loc.x,
-			self.loc.y,
+			self.loc.y - state.ui_font.get_line_height() as f32 / 2.,
 			FontAlign::Centre,
 			&self.text,
 		);
 	}
 
-	fn input(&mut self, event: &Event)
+	fn input(&mut self, event: &Event) -> bool
 	{
 		let start = self.loc - self.size / 2.;
 		let end = self.loc + self.size / 2.;
+		let mut handled = false;
 		match event
 		{
 			Event::MouseButtonDown {
@@ -83,7 +93,15 @@ impl Button
 				let (x, y) = (*x as f32, *y as f32);
 				if x > start.x && x < end.x && y < end.y && y > start.y
 				{
-					self.on = true;
+					if self.is_toggle
+					{
+						self.on = !self.on;
+					}
+					else
+					{
+						self.on = true;
+					}
+					handled = true;
 				}
 			}
 			Event::MouseAxes { x, y, .. } =>
@@ -93,6 +111,7 @@ impl Button
 			}
 			_ => (),
 		}
+		handled
 	}
 }
 
@@ -172,11 +191,259 @@ impl Cell
 	}
 }
 
+struct HUD
+{
+	buffer_height: f32,
+	buffer_width: f32,
+	buttons: Vec<Button>,
+	toggled: Vec<usize>,
+}
+
+impl HUD
+{
+	fn new(state: &mut game_state::GameState) -> Self
+	{
+		let mut buttons = vec![];
+		// Sigh... why does it always end up like this? Despicable, regrettable garbage...
+		let (dw, dh) = (state.display_width, state.display_height);
+		let (x, mut y) = (dw - 256., dh - 256.);
+
+		y += 32.;
+
+		let size = Vector2::new(32., 16.);
+
+		for i in 0..4
+		{
+			let theta = -PI / 2. + i as f32 * PI / 2.;
+
+			let r = 32.;
+			let cx = x + 64.;
+
+			let lx = cx + (32. + r) * theta.cos();
+			let ly = y + (16. + r) * theta.sin();
+
+			let offt = if i == 3 { -32. } else { 32. };
+			buttons.push(Button::new(
+				Point2::new(lx + offt, ly),
+				size,
+				true,
+				"AAA".to_string(),
+			));
+		}
+
+		y += 72.;
+		let x = x - 32.;
+
+		let h = 16.;
+		buttons.push(Button::new(
+			Point2::new(x, y),
+			size,
+			true,
+			"AAA".to_string(),
+		));
+		y += h;
+		y += h;
+		buttons.push(Button::new(
+			Point2::new(x, y),
+			size,
+			true,
+			"AAA".to_string(),
+		));
+		y += h;
+		buttons.push(Button::new(
+			Point2::new(x, y),
+			size,
+			true,
+			"AAA".to_string(),
+		));
+
+		Self {
+			buffer_width: dw,
+			buffer_height: dh,
+			buttons: buttons,
+			toggled: vec![],
+		}
+	}
+
+	fn status_pos(&self) -> Point2<f32>
+	{
+		let (dw, dh) = (self.buffer_width, self.buffer_height);
+		Point2::new(dw - 256., dh - 256.)
+	}
+
+	fn over_ui(&self, state: &game_state::GameState) -> bool
+	{
+		let mouse_pos = Point2::new(state.mouse_pos.x as f32, state.mouse_pos.y as f32);
+		let status_pos = self.status_pos();
+		mouse_pos.x > status_pos.x - 64. && mouse_pos.y > status_pos.y - 32.
+	}
+
+	fn input(&mut self, event: &Event, _map: &mut Map, state: &mut game_state::GameState) -> bool
+	{
+		for (i, button) in &mut self.buttons.iter_mut().enumerate()
+		{
+			let old_on = button.on;
+			button.input(event);
+			if !old_on && button.on
+			{
+				self.toggled.push(i);
+			}
+		}
+		self.toggled.retain(|i| self.buttons[*i].on);
+		self.over_ui(state)
+	}
+
+	fn logic(&mut self, map: &mut Map, _state: &game_state::GameState)
+	{
+		if let Ok(mut ship_state) = map.world.get::<&mut comps::ShipState>(map.player)
+		{
+			let max_repair = 2;
+			if self.toggled.len() > max_repair as usize
+			{
+				for i in &self.toggled[..(self.toggled.len() - max_repair as usize)]
+				{
+					self.buttons[*i].on = false;
+				}
+				self.toggled
+					.drain(..(self.toggled.len() - max_repair as usize));
+			}
+			ship_state.repair_boost.clone_from(&self.toggled);
+		}
+	}
+
+	fn draw(&self, map: &Map, state: &game_state::GameState)
+	{
+		let (dw, dh) = (self.buffer_width, self.buffer_height);
+		let ortho_mat = Matrix4::new_orthographic(0., dw, dh, 0., -1., 1.);
+		state
+			.core
+			.use_projection_transform(&utils::mat4_to_transform(ortho_mat));
+		state.core.use_transform(&Transform::identity());
+		state.core.set_depth_test(None);
+		state
+			.core
+			.use_shader(Some(&*state.default_shader.upgrade().unwrap()))
+			.unwrap();
+		let mut weapon_slots = vec![];
+		if let (Ok(pos), Ok(equipment)) = (
+			map.world.get::<&comps::Position>(map.player),
+			map.world.get::<&comps::Equipment>(map.player),
+		)
+		{
+			for slot in &equipment.slots
+			{
+				if slot.is_inventory
+				{
+					continue;
+				}
+				if let Some(item) = slot.item.as_ref()
+				{
+					match &item.kind
+					{
+						comps::ItemKind::Weapon(weapon) =>
+						{
+							weapon_slots.push((
+								pos.pos,
+								pos.dir,
+								weapon.readiness,
+								slot.pos,
+								slot.dir.unwrap_or(0.),
+								weapon.stats.arc,
+							));
+						}
+					}
+				}
+			}
+		}
+		let w = 32.;
+		let total = weapon_slots.len() as f32 * w;
+		let offt = total / 2.;
+		let mouse_ground_pos = map.get_mouse_ground_pos(state);
+
+		for (i, (pos, dir, fire_readiness, slot_pos, slot_dir, arc)) in
+			weapon_slots.iter().enumerate()
+		{
+			let x = i as f32 * w - offt + dw / 2.;
+			let y = dh - 2. * w;
+			let f = *fire_readiness;
+
+			let rot = Rotation2::new(*dir);
+			let rot_slot = Rotation2::new(*slot_dir);
+			let slot_pos = pos.zx() + rot * slot_pos.coords;
+			let slot_vec_dir = rot_slot * rot * Vector2::new(1., 0.);
+			let target_dir = (mouse_ground_pos.zx() - slot_pos).normalize();
+			let min_dot = (arc / 2.).cos();
+
+			if slot_vec_dir.dot(&target_dir) > min_dot
+			{
+				state.prim.draw_filled_pieslice(
+					x + w / 2.,
+					y + w / 2.,
+					w / 2.,
+					-slot_dir - arc / 2. + PI * 3. / 2.,
+					*arc,
+					Color::from_rgba_f(f, f, f, f),
+				);
+			}
+			else
+			{
+				state.prim.draw_pieslice(
+					x + w / 2.,
+					y + w / 2.,
+					w / 2.,
+					-slot_dir - arc / 2. + PI * 3. / 2.,
+					*arc,
+					Color::from_rgba_f(f, f, f, f),
+					3.,
+				);
+			}
+		}
+
+		let status_pos = self.status_pos();
+
+		if let (Ok(ship_state), Ok(stats)) = (
+			map.world.get::<&comps::ShipState>(map.player),
+			map.world.get::<&comps::ShipStats>(map.player),
+		)
+		{
+			draw_ship_state(&*ship_state, &*stats, status_pos.x, status_pos.y, state);
+		}
+
+		if let Some(mouse_entity) = map.mouse_entity
+		{
+			if map.mouse_entity != Some(map.player)
+			{
+				if let (Ok(ship_state), Ok(stats)) = (
+					map.world.get::<&comps::ShipState>(mouse_entity),
+					map.world.get::<&comps::ShipStats>(mouse_entity),
+				)
+				{
+					draw_ship_state(&*ship_state, &*stats, 16., dh - 256., state);
+				}
+			}
+		}
+		state.core.draw_text(
+			&state.ui_font,
+			Color::from_rgb_f(1., 1., 1.),
+			dw / 2.0,
+			16.,
+			FontAlign::Centre,
+			&format!("Money: ${}", map.money),
+		);
+
+		for toggle in &self.buttons
+		{
+			toggle.draw(state);
+		}
+	}
+}
+
 pub struct Game
 {
 	map: Map,
 	equipment_screen: Option<EquipmentScreen>,
 	subscreens: Vec<ui::SubScreen>,
+	hud: HUD,
 }
 
 impl Game
@@ -187,6 +454,7 @@ impl Game
 			map: Map::new(state)?,
 			subscreens: vec![],
 			equipment_screen: None,
+			hud: HUD::new(state),
 		})
 	}
 
@@ -230,6 +498,7 @@ impl Game
 			{
 				self.map.mouse_in_buffer = true;
 			}
+			self.hud.logic(&mut self.map, state);
 			self.map.logic(state)
 		}
 		else
@@ -242,15 +511,12 @@ impl Game
 		&mut self, event: &Event, state: &mut game_state::GameState,
 	) -> Result<Option<game_state::NextScreen>>
 	{
-		let handled;
+		let mut handled = false;
 		if let Some(equipment_screen) = self.equipment_screen.as_mut()
 		{
-			handled = equipment_screen.input(event, &mut self.map, state);
+			handled |= equipment_screen.input(event, &mut self.map, state);
 		}
-		else
-		{
-			handled = false;
-		}
+		handled |= self.hud.input(event, &mut self.map, state);
 		if !handled
 		{
 			state.controls.decode_event(event);
@@ -350,7 +616,11 @@ impl Game
 	pub fn draw(&mut self, state: &game_state::GameState) -> Result<()>
 	{
 		state.core.clear_to_color(Color::from_rgb_f(0.5, 0.5, 1.));
-		self.map.draw(state, self.subscreens.is_empty())?;
+		self.map.draw(state)?;
+		if self.subscreens.is_empty()
+		{
+			self.hud.draw(&self.map, state);
+		}
 		if let Some(equipment_screen) = self.equipment_screen.as_ref()
 		{
 			equipment_screen.draw(&self.map, state);
@@ -507,6 +777,7 @@ impl EquipmentScreen
 			self.switch_ships = Some(Button::new(
 				Point2::new(state.display_width / 3. - 64., 64.),
 				Vector2::new(64., 64.),
+				false,
 				"Switch".into(),
 			));
 		}
@@ -937,14 +1208,14 @@ fn draw_ship_state(
 		);
 	}
 
-	y += 64.;
+	y += 72.;
 
 	let h = 16.;
 	state.core.draw_text(
 		&state.ui_font,
 		Color::from_rgb_f(1., 1., 1.),
 		x,
-		y,
+		y - lh / 2.,
 		FontAlign::Left,
 		&format!("Hull: {}", ship_state.hull as i32),
 	);
@@ -953,7 +1224,7 @@ fn draw_ship_state(
 		&state.ui_font,
 		Color::from_rgb_f(1., 1., 1.),
 		x,
-		y,
+		y - lh / 2.,
 		FontAlign::Left,
 		&format!("Crew: {} H / {} W", ship_state.crew, ship_state.wounded),
 	);
@@ -962,7 +1233,7 @@ fn draw_ship_state(
 		&state.ui_font,
 		Color::from_rgb_f(1., 1., 1.),
 		x,
-		y,
+		y - lh / 2.,
 		FontAlign::Left,
 		&format!("Infirmary: {}", ship_state.infirmary as i32),
 	);
@@ -971,7 +1242,7 @@ fn draw_ship_state(
 		&state.ui_font,
 		Color::from_rgb_f(1., 1., 1.),
 		x,
-		y,
+		y - lh / 2.,
 		FontAlign::Left,
 		&format!("Sails: {}", ship_state.sails as i32),
 	);
@@ -1374,49 +1645,52 @@ impl Map
 				.unwrap()
 				.sample(&mut self.rng);
 
-			let parts = [
-				10. * (stats.hull - ship_state.hull), // No hull, no ship.
-				stats.sails - ship_state.sails,
-				stats.infirmary - ship_state.infirmary,
+			let mut parts = [
 				stats.armor[0] - ship_state.armor[0],
 				stats.armor[1] - ship_state.armor[1],
 				stats.armor[2] - ship_state.armor[2],
 				stats.armor[3] - ship_state.armor[3],
+				10. * (stats.hull - ship_state.hull), // No hull, no ship.
+				stats.infirmary - ship_state.infirmary,
+				stats.sails - ship_state.sails,
 			];
+			for i in &ship_state.repair_boost
+			{
+				parts[*i] *= 5.;
+			}
 			if let Ok(dist) = rand_distr::WeightedIndex::new(&parts)
 			{
-				match dist.sample(&mut self.rng)
+				let to_repair = dist.sample(&mut self.rng);
+				let num_repaired = num_repaired as f32;
+				match to_repair
 				{
-					0 => ship_state.hull = (ship_state.hull + num_repaired as f32).min(stats.hull),
+					0 =>
+					{
+						ship_state.armor[0] =
+							(ship_state.armor[0] + num_repaired).min(stats.armor[0])
+					}
 					1 =>
 					{
-						ship_state.sails = (ship_state.sails + num_repaired as f32).min(stats.sails)
+						ship_state.armor[1] =
+							(ship_state.armor[1] + num_repaired).min(stats.armor[1])
 					}
 					2 =>
 					{
-						ship_state.infirmary =
-							(ship_state.infirmary + num_repaired as f32).min(stats.infirmary)
+						ship_state.armor[2] =
+							(ship_state.armor[2] + num_repaired).min(stats.armor[2])
 					}
 					3 =>
 					{
-						ship_state.armor[0] =
-							(ship_state.armor[0] + num_repaired as f32).min(stats.armor[0])
+						ship_state.armor[3] =
+							(ship_state.armor[3] + num_repaired).min(stats.armor[3])
 					}
-					4 =>
-					{
-						ship_state.armor[1] =
-							(ship_state.armor[1] + num_repaired as f32).min(stats.armor[1])
-					}
+					4 => ship_state.hull = (ship_state.hull + num_repaired).min(stats.hull),
 					5 =>
 					{
-						ship_state.armor[2] =
-							(ship_state.armor[2] + num_repaired as f32).min(stats.armor[2])
+						ship_state.infirmary =
+							(ship_state.infirmary + num_repaired).min(stats.infirmary)
 					}
-					6 =>
-					{
-						ship_state.armor[3] =
-							(ship_state.armor[3] + num_repaired as f32).min(stats.armor[3])
-					}
+					6 => ship_state.sails = (ship_state.sails + num_repaired).min(stats.sails),
 					_ => unreachable!(),
 				}
 			}
@@ -2088,7 +2362,7 @@ impl Map
 		Ok(None)
 	}
 
-	fn draw(&mut self, state: &game_state::GameState, draw_ui: bool) -> Result<()>
+	fn draw(&mut self, state: &game_state::GameState) -> Result<()>
 	{
 		state.core.set_depth_test(Some(DepthFunction::Less));
 
@@ -2196,126 +2470,6 @@ impl Map
 				.get_mesh(&mesh.mesh)
 				.unwrap()
 				.draw(&state.prim, flag_mapper) //|s| state.get_bitmap(s));
-		}
-
-		let (dw, dh) = (self.buffer_width, self.buffer_height);
-		let ortho_mat = Matrix4::new_orthographic(0., dw, dh, 0., -1., 1.);
-		state
-			.core
-			.use_projection_transform(&utils::mat4_to_transform(ortho_mat));
-		state.core.use_transform(&Transform::identity());
-		state.core.set_depth_test(None);
-		state
-			.core
-			.use_shader(Some(&*state.default_shader.upgrade().unwrap()))
-			.unwrap();
-
-		if draw_ui
-		{
-			let mut weapon_slots = vec![];
-			if let (Ok(pos), Ok(equipment)) = (
-				self.world.get::<&comps::Position>(self.player),
-				self.world.get::<&comps::Equipment>(self.player),
-			)
-			{
-				for slot in &equipment.slots
-				{
-					if slot.is_inventory
-					{
-						continue;
-					}
-					if let Some(item) = slot.item.as_ref()
-					{
-						match &item.kind
-						{
-							comps::ItemKind::Weapon(weapon) =>
-							{
-								weapon_slots.push((
-									pos.pos,
-									pos.dir,
-									weapon.readiness,
-									slot.pos,
-									slot.dir.unwrap_or(0.),
-									weapon.stats.arc,
-								));
-							}
-						}
-					}
-				}
-			}
-			let w = 32.;
-			let total = weapon_slots.len() as f32 * w;
-			let offt = total / 2.;
-			let mouse_ground_pos = self.get_mouse_ground_pos(state);
-
-			for (i, (pos, dir, fire_readiness, slot_pos, slot_dir, arc)) in
-				weapon_slots.iter().enumerate()
-			{
-				let x = i as f32 * w - offt + dw / 2.;
-				let y = dh - 2. * w;
-				let f = *fire_readiness;
-
-				let rot = Rotation2::new(*dir);
-				let rot_slot = Rotation2::new(*slot_dir);
-				let slot_pos = pos.zx() + rot * slot_pos.coords;
-				let slot_vec_dir = rot_slot * rot * Vector2::new(1., 0.);
-				let target_dir = (mouse_ground_pos.zx() - slot_pos).normalize();
-				let min_dot = (arc / 2.).cos();
-
-				if slot_vec_dir.dot(&target_dir) > min_dot
-				{
-					state.prim.draw_filled_pieslice(
-						x + w / 2.,
-						y + w / 2.,
-						w / 2.,
-						-slot_dir - arc / 2. + PI * 3. / 2.,
-						*arc,
-						Color::from_rgba_f(f, f, f, f),
-					);
-				}
-				else
-				{
-					state.prim.draw_pieslice(
-						x + w / 2.,
-						y + w / 2.,
-						w / 2.,
-						-slot_dir - arc / 2. + PI * 3. / 2.,
-						*arc,
-						Color::from_rgba_f(f, f, f, f),
-						3.,
-					);
-				}
-			}
-
-			if let (Ok(ship_state), Ok(stats)) = (
-				self.world.get::<&comps::ShipState>(self.player),
-				self.world.get::<&comps::ShipStats>(self.player),
-			)
-			{
-				draw_ship_state(&*ship_state, &*stats, dw - 256., dh - 256., state);
-			}
-
-			if let Some(mouse_entity) = self.mouse_entity
-			{
-				if self.mouse_entity != Some(self.player)
-				{
-					if let (Ok(ship_state), Ok(stats)) = (
-						self.world.get::<&comps::ShipState>(mouse_entity),
-						self.world.get::<&comps::ShipStats>(mouse_entity),
-					)
-					{
-						draw_ship_state(&*ship_state, &*stats, 16., dh - 256., state);
-					}
-				}
-			}
-			state.core.draw_text(
-				&state.ui_font,
-				Color::from_rgb_f(1., 1., 1.),
-				dw / 2.0,
-				16.,
-				FontAlign::Centre,
-				&format!("Money: ${}", self.money),
-			);
 		}
 
 		Ok(())

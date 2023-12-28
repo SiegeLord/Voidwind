@@ -16,10 +16,11 @@ use std::collections::HashMap;
 
 use std::f32::consts::PI;
 
-static CELL_SIZE: i32 = 128;
-static CELL_RADIUS: i32 = 2;
+const CELL_SIZE: i32 = 128;
+const CELL_RADIUS: i32 = 2;
 const SLOT_WIDTH: f32 = 32.;
 const CREW_COST: i32 = 20;
+const MESSAGE_DURATION: f32 = 5.;
 
 #[derive(Clone)]
 pub struct Button
@@ -150,7 +151,8 @@ impl Cell
 		let team = *[comps::Team::English, comps::Team::French]
 			.choose(rng)
 			.unwrap();
-		let team = comps::Team::English;
+		//let team = comps::Team::French;
+		//let team = comps::Team::English;
 
 		let ship = make_ship(world_center, &ship_stats, team, 1, world, state)?;
 
@@ -160,8 +162,8 @@ impl Cell
 				state: comps::AIState::Idle,
 			},
 		)?;
-		//world.get::<&mut comps::ShipState>(ship).unwrap().crew = 0;
-		//world.get::<&mut comps::ShipState>(ship).unwrap().hull = 0.;
+		//world.get::<&mut comps::ShipState>(ship).unwrap().crew = 1;
+		//world.get::<&mut comps::ShipState>(ship).unwrap().hull = 1.;
 
 		Ok(Self { center: center })
 	}
@@ -396,6 +398,17 @@ impl HUD
 		)
 		{
 			draw_ship_state(&*ship_state, &*stats, status_pos.x, status_pos.y, state);
+
+			let f = (ship_state.experience - comps::level_experience(ship_state.level))
+				/ (comps::level_experience(ship_state.level + 1)
+					- comps::level_experience(ship_state.level));
+			state.prim.draw_filled_rectangle(
+				dw / 3.,
+				dh - 16.,
+				dw / 3. + (dw / 3.) * f,
+				dh,
+				Color::from_rgb_f(0.7, 0.7, 0.2),
+			);
 		}
 
 		if let Some(target_entity) = map.target_entity
@@ -419,6 +432,22 @@ impl HUD
 			FontAlign::Centre,
 			&format!("Money: ${}", map.money),
 		);
+
+		let lh = state.ui_font.get_line_height() as f32;
+
+		let num_messages = map.messages.len();
+		for (i, (message, time)) in map.messages.iter().enumerate()
+		{
+			let f = 1. - (state.time() - time) as f32 / MESSAGE_DURATION;
+			state.core.draw_text(
+				&state.ui_font,
+				Color::from_rgba_f(f, f, f, f),
+				dw / 2.0,
+				dh / 4.0 - i as f32 * lh * 1.5 + num_messages as f32 * lh * 1.5,
+				FontAlign::Centre,
+				&message,
+			);
+		}
 
 		for toggle in &self.buttons
 		{
@@ -509,6 +538,16 @@ impl Game
 		if !handled
 		{
 			state.controls.decode_event(event);
+			let want_move = state.controls.get_action_state(controls::Action::Move) > 0.5;
+			if self.map.dock_entity.is_some() && want_move
+			{
+				self.equipment_screen
+					.as_mut()
+					.unwrap()
+					.finish_trade(&mut self.map);
+				self.equipment_screen = None;
+				self.map.dock_entity = None;
+			}
 		}
 		match *event
 		{
@@ -789,8 +828,6 @@ impl EquipmentScreen
 			{
 				if dock_state.hull > 0. && dock_state.team != player_state.team
 				{
-					dbg!("switch");
-
 					self.switch_ships = Some(Button::new(
 						Point2::new(state.display_width / 3. - 64., 64.),
 						Vector2::new(64., 64.),
@@ -800,8 +837,6 @@ impl EquipmentScreen
 				}
 				if dock_state.team == player_state.team
 				{
-					dbg!("recruit");
-
 					self.recruit = Some(Button::new(
 						Point2::new(state.display_width / 3. - 64., 64.),
 						Vector2::new(64., 64.),
@@ -1491,6 +1526,7 @@ struct Map
 	mouse_in_buffer: bool,
 	cells: Vec<Cell>,
 	money: i32,
+	messages: Vec<(String, f64)>,
 }
 
 impl Map
@@ -1521,14 +1557,14 @@ impl Map
 		{
 			let mut ship_state = world.get::<&mut comps::ShipState>(player).unwrap();
 			//ship_state.hull = 10.;
-			ship_state.crew = 1;
+			//ship_state.crew = 1;
 			//ship_state.wounded = 0;
 			//ship_state.infirmary = 0.;
 			//ship_state.sails = 30.;
 			//ship_state.armor[0] = 50.;
 			//ship_state.armor[1] = 0.;
-			ship_state.level = 3;
-			ship_state.experience = comps::level_experience(3);
+			ship_state.experience = comps::level_experience(1);
+			ship_state.compute_level();
 		}
 
 		let mut cells = vec![];
@@ -1556,6 +1592,7 @@ impl Map
 			cells: cells,
 			zoom: 1.,
 			money: 1000,
+			messages: vec![],
 		})
 	}
 
@@ -1573,6 +1610,11 @@ impl Map
 		)
 	}
 
+	fn add_message(&mut self, message: String, state: &game_state::GameState)
+	{
+		self.messages.push((message, state.time()));
+	}
+
 	fn get_mouse_ground_pos(&self, state: &game_state::GameState) -> Point3<f32>
 	{
 		let (x, y) = (state.mouse_pos.x, state.mouse_pos.y);
@@ -1587,6 +1629,10 @@ impl Map
 	{
 		let mut to_die = vec![];
 		let dt = utils::DT as f32;
+
+		// Messages
+		self.messages
+			.retain(|(_, t)| state.time() - t < MESSAGE_DURATION as f64);
 
 		// Cell changes
 		let mut new_cell_centers = vec![];
@@ -1726,7 +1772,7 @@ impl Map
 			// Each crew member can repair 0.1 point per 1 second, probabilistically
 			let repair_prob = dt as f64;
 			let num_repaired =
-				rand_distr::Binomial::new((effective_crew * 0.1) as u64, repair_prob)
+				rand_distr::Binomial::new((effective_crew * 0.1).ceil() as u64, repair_prob)
 					.unwrap()
 					.sample(&mut self.rng);
 
@@ -1940,21 +1986,84 @@ impl Map
 					(comps::ContactEffect::Hurt { damage }, other_id) =>
 					{
 						let mut damaged = false;
+						let mut disabled = None;
+						let mut destroyed = false;
 						let mut bleed_through = 0.;
 						if let Ok(mut ship_state) =
 							self.world.get::<&mut comps::ShipState>(other_id)
 						{
+							let was_active = ship_state.is_active();
 							(damaged, bleed_through) = ship_state.damage(
 								&damage,
 								(pos - other_pos).normalize(),
 								&mut self.rng,
 							);
+							if damaged && was_active != ship_state.is_active()
+							{
+								disabled = Some(ship_state.level);
+								destroyed = !ship_state.is_structurally_sound();
+							}
 						}
 						if damaged
 						{
 							if let Ok(mut ai) = self.world.get::<&mut comps::AI>(other_id)
 							{
 								ai.state = comps::AIState::Pursuing(id);
+							}
+
+							let destroy_prob = if destroyed
+							{
+								0.75
+							}
+							else
+							{
+								0.01 * bleed_through / damage.damage
+							};
+							if let Ok(mut equipment) =
+								self.world.get::<&mut comps::Equipment>(other_id)
+							{
+								for slot in &mut equipment.slots
+								{
+									if self.rng.gen_bool(destroy_prob as f64)
+									{
+										println!("Destroyed {:?}", slot.item);
+										if !destroyed && other_id == self.player
+										{
+											if let Some(item) = slot.item.as_ref()
+											{
+												self.messages.push((
+													format!("{} destroyed!", item.kind.name()),
+													state.time(),
+												));
+											}
+										}
+										slot.item = None;
+									}
+								}
+							}
+						}
+						if let Some(level) = disabled
+						{
+							let parent_id = self
+								.world
+								.get::<&comps::Solid>(id)
+								.ok()
+								.and_then(|s| s.parent);
+							if let Some(mut ship_state) = parent_id
+								.and_then(|id| self.world.get::<&mut comps::ShipState>(id).ok())
+							{
+								let level_diff = (ship_state.level - level).abs();
+								let f = if level_diff < 5
+								{
+									1.
+								}
+								else
+								{
+									0.3_f32.powi(level_diff - 4)
+								};
+								ship_state.experience += f * comps::enemy_experience(level);
+								dbg!(ship_state.experience);
+								ship_state.compute_level();
 							}
 						}
 					}
@@ -1990,15 +2099,18 @@ impl Map
 
 			if let Some(entry) = mouse_entries.first()
 			{
-				if let (Ok(pos), Ok(solid), Ok(_)) = (
-					self.world.get::<&comps::Position>(entry.inner.entity),
-					self.world.get::<&comps::Solid>(entry.inner.entity),
-					self.world.get::<&comps::ShipState>(entry.inner.entity),
-				)
+				if entry.inner.entity != self.player
 				{
-					if (pos.pos - mouse_ground_pos).magnitude() < solid.size
+					if let (Ok(pos), Ok(solid), Ok(_)) = (
+						self.world.get::<&comps::Position>(entry.inner.entity),
+						self.world.get::<&comps::Solid>(entry.inner.entity),
+						self.world.get::<&comps::ShipState>(entry.inner.entity),
+					)
 					{
-						self.target_entity = Some(entry.inner.entity);
+						if (pos.pos - mouse_ground_pos).magnitude() < solid.size
+						{
+							self.target_entity = Some(entry.inner.entity);
+						}
 					}
 				}
 			}
@@ -2007,6 +2119,7 @@ impl Map
 		if want_move && mouse_in_buffer && player_alive
 		{
 			state.controls.clear_action_state(controls::Action::Move);
+			self.messages.push(("Moving".into(), state.time()));
 			self.dock_entity = None;
 			let marker = make_target(mouse_ground_pos, &mut self.world, state)?;
 			let despawn;
@@ -2364,7 +2477,7 @@ impl Map
 				}
 				comps::AIState::Idle =>
 				{
-					let sense_radius = 30.;
+					let sense_radius = 60.;
 					let entries = grid.query_rect(
 						pos.pos.zx() - Vector2::new(sense_radius, sense_radius) - center.coords,
 						pos.pos.zx() + Vector2::new(sense_radius, sense_radius) - center.coords,

@@ -16,6 +16,11 @@ pub fn level_experience(level: i32) -> f32
 	(level as f32).powf(3.)
 }
 
+pub fn enemy_experience(level: i32) -> f32
+{
+	2. * (level as f32).powf(2.)
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct Position
 {
@@ -154,6 +159,17 @@ pub enum ItemKind
 
 impl ItemKind
 {
+	pub fn name(&self) -> String
+	{
+		match self
+		{
+			ItemKind::Weapon(weapon) =>
+			{
+				format!("Cannon")
+			}
+		}
+	}
+
 	pub fn description(&self) -> String
 	{
 		match self
@@ -163,7 +179,7 @@ impl ItemKind
 				let fire_interval = weapon.stats.fire_interval;
 				let arc = (weapon.stats.arc / PI * 180.) as i32;
 				[
-					format!("Cannon"),
+					self.name(),
 					"".into(),
 					format!("Reload Time: {fire_interval:.1} sec"),
 					format!("Arc: {arc}°"),
@@ -359,9 +375,12 @@ impl ShipState
 						let crew_damage = (bleed_through / 2.).ceil() as i32;
 						let old_crew = self.crew;
 						self.crew = (old_crew - crew_damage).max(0);
-						if rng.gen_bool(0.9)
+						for _ in 0..(old_crew - self.crew)
 						{
-							self.wounded += old_crew - self.crew;
+							if rng.gen_bool(0.9)
+							{
+								self.wounded += 1;
+							}
 						}
 					}
 					2 =>
@@ -383,7 +402,7 @@ impl ShipState
 	pub fn compute_level(&mut self)
 	{
 		let mut level = 1;
-		while level_experience(level) < self.experience
+		while level_experience(level + 1) <= self.experience
 		{
 			level += 1;
 		}

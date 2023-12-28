@@ -1,6 +1,5 @@
 Wednesday
 
-    - Experience
     - Item destruction.
     
     Control groups (on inventory screen, shown on both screens)
@@ -8,6 +7,7 @@ Wednesday
     Economy.
 
     Done:
+        - Experience
         - A different method for weapon recovery, based on which weapons need recovering to encourage control groups
         - Crew recruitment
         - Boarding (for player)

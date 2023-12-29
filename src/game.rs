@@ -8,7 +8,7 @@ use allegro_primitives::*;
 use gltf::accessor::util::SparseIndicesIter;
 use na::{
 	Isometry3, Matrix4, Perspective3, Point2, Point3, Quaternion, RealField, Rotation2, Rotation3,
-	Translation3, Unit, Vector2, Vector3, Vector4,
+	Similarity3, Translation3, Unit, Vector2, Vector3, Vector4,
 };
 use nalgebra as na;
 use rand::prelude::*;
@@ -1605,6 +1605,7 @@ impl Map
 
 		state.cache_bitmap("data/english_flag.png")?;
 		state.cache_bitmap("data/french_flag.png")?;
+		game_state::cache_mesh(state, "data/sphere.glb")?;
 
 		Ok(Self {
 			world: world,
@@ -2708,7 +2709,7 @@ impl Map
 		state.core.clear_depth_buffer(1.);
 		state.core.clear_to_color(Color::from_rgb_f(0., 0., 0.));
 
-        let shift = Vector3::new(0., -0.01, 0.);
+		let shift = Vector3::new(0., -0.01, 0.);
 		let tl = utils::get_ground_from_screen(-1.0, 1.0, project, camera) + shift;
 		let tr = utils::get_ground_from_screen(1.0, 1.0, project, camera) + shift;
 		let bl = utils::get_ground_from_screen(-1.0, -1.0, project, camera) + shift;
@@ -2818,7 +2819,76 @@ impl Map
 
 		// Light pass.
 		state.core.set_target_bitmap(state.light_buffer.as_ref());
-		state.core.clear_to_color(Color::from_rgb_f(1., 1., 1.));
+		state.core.clear_to_color(Color::from_rgb_f(0.1, 0.1, 0.1));
+		state
+			.core
+			.use_projection_transform(&utils::mat4_to_transform(project.to_homogeneous()));
+
+		state.core.set_depth_test(None);
+		unsafe {
+			gl::Enable(gl::CULL_FACE);
+			gl::DepthMask(gl::FALSE);
+			gl::CullFace(gl::FRONT);
+		}
+		state
+			.core
+			.set_blender(BlendOperation::Add, BlendMode::One, BlendMode::One);
+
+		state
+			.core
+			.use_shader(Some(&*state.light_shader.upgrade().unwrap()))
+			.unwrap();
+		state
+			.core
+			.set_shader_uniform("position_buffer", &[0_i32][..])
+			.ok(); //unwrap();
+		state
+			.core
+			.set_shader_uniform("normal_buffer", &[1_i32][..])
+			.ok(); //unwrap();
+		state
+			.core
+			.set_shader_uniform(
+				"buffer_size",
+				&[[self.buffer_width, self.buffer_height]][..],
+			)
+			.ok(); //.unwrap();
+
+		for (c, light_pos) in [(Color::from_rgb_f(0.5, 0.5, 0.5), Point3::new(0., 5., 0.))]
+		{
+			let (r, g, b) = c.to_rgb_f();
+			state
+				.core
+				.set_shader_uniform("light_color", &[[r, g, b, 1.0]][..])
+				.ok(); //.unwrap();
+			state
+				.core
+				.set_shader_uniform(
+					"light_pos",
+					&[[light_pos[0], light_pos[1], light_pos[2]]][..],
+				)
+				.ok(); //.unwrap();
+
+			let shift =
+				Similarity3::from_isometry(Isometry3::new(light_pos.coords, Vector3::y()), 40.);
+
+			state.core.use_transform(&utils::mat4_to_transform(
+				camera.to_homogeneous() * shift.to_homogeneous(),
+			));
+
+			let g_buffer = state.g_buffer.as_ref().unwrap();
+			unsafe {
+				gl::ActiveTexture(gl::TEXTURE0);
+				gl::BindTexture(gl::TEXTURE_2D, g_buffer.position_tex);
+				gl::ActiveTexture(gl::TEXTURE1);
+				gl::BindTexture(gl::TEXTURE_2D, g_buffer.normal_tex);
+			}
+
+			if let Some(mesh) = state.get_mesh("data/sphere.glb")
+			{
+				mesh.draw(&state.prim, |_, s| state.get_bitmap(s));
+			}
+		}
 
 		// Final pass.
 		let g_buffer = state.g_buffer.as_ref().unwrap();

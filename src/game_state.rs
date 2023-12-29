@@ -169,6 +169,7 @@ pub struct GameState
 	pub default_shader: sync::Weak<Shader>,
 
 	pub forward_shader: sync::Weak<Shader>,
+	pub light_shader: sync::Weak<Shader>,
 	pub final_shader: sync::Weak<Shader>,
 
 	pub buffer: Option<Bitmap>,
@@ -225,6 +226,7 @@ impl GameState
 			water_shader: sync::Weak::new(),
 			default_shader: sync::Weak::new(),
 			forward_shader: sync::Weak::new(),
+			light_shader: sync::Weak::new(),
 			final_shader: sync::Weak::new(),
 			buffer: None,
 			light_buffer: None,
@@ -245,12 +247,14 @@ impl GameState
 			"data/forward_vertex.glsl",
 			"data/forward_pixel.glsl",
 		)?;
+		self.light_shader =
+			make_shader(display, "data/light_vertex.glsl", "data/light_pixel.glsl")?;
 		self.final_shader =
 			make_shader(display, "data/final_vertex.glsl", "data/final_pixel.glsl")?;
 
 		self.default_shader = make_default_shader(&self.core, display)?;
 
-    	self.core.set_new_bitmap_depth(16);
+		self.core.set_new_bitmap_depth(16);
 		self.light_buffer = Some(
 			Bitmap::new(
 				&self.core,
@@ -267,7 +271,7 @@ impl GameState
 			)
 			.map_err(|_| "Couldn't create bitmap".to_string())?,
 		);
-    	self.core.set_new_bitmap_depth(0);
+		self.core.set_new_bitmap_depth(0);
 		self.g_buffer = Some(deferred::GBuffer::new(
 			self.display_width as i32,
 			self.display_height as i32,

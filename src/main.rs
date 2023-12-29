@@ -94,7 +94,7 @@ fn real_main() -> Result<()>
 	let mut logics_without_draw = 0;
 	let mut old_fullscreen = state.options.fullscreen;
 
-    let mut frame_times = circular_buffer::CircularBuffer::<16, _>::new();
+	let mut frame_times = circular_buffer::CircularBuffer::<16, _>::new();
 	//state.core.grab_mouse(&display).ok();
 	//display.show_cursor(false).ok();
 
@@ -112,7 +112,7 @@ fn real_main() -> Result<()>
 
 			let frame_start = state.core.get_time();
 
-            state.core.set_target_bitmap(state.buffer.as_ref());
+			state.core.set_target_bitmap(state.buffer.as_ref());
 			unsafe {
 				gl::Disable(gl::CULL_FACE);
 			}
@@ -132,17 +132,19 @@ fn real_main() -> Result<()>
 			}
 
 			state.core.set_target_bitmap(Some(display.get_backbuffer()));
-            state.core.draw_bitmap(state.buffer.as_ref().unwrap(), 0., 0., Flag::zero());
+			state
+				.core
+				.draw_bitmap(state.buffer.as_ref().unwrap(), 0., 0., Flag::zero());
 			state.core.flip_display();
 
-            frame_times.push_back(state.core.get_time() - frame_start);
+			frame_times.push_back(state.core.get_time() - frame_start);
 			if (state.tick + 1) % 120 == 0
 			{
-                let mut sum = 0.;
-                for v in &frame_times
-                {
-                    sum += v;
-                }
+				let mut sum = 0.;
+				for v in &frame_times
+				{
+					sum += v;
+				}
 				println!("FPS: {:.2}", 1. / (sum / frame_times.len() as f64));
 			}
 			logics_without_draw = 0;

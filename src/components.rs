@@ -241,7 +241,7 @@ impl Equipment
 			let y = (i as i32 / 4) as f32 + 2.;
 			slots.push(ItemSlot {
 				item: None,
-				pos: Point2::new(-y, -x),
+				pos: Point2::new(-3. * y, -3. * x),
 				dir: None,
 				is_inventory: true,
 			})

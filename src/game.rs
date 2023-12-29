@@ -752,7 +752,7 @@ impl EquipmentScreen
 	fn get_slot_pos(&self, equipment_idx: i32, real_pos: Point2<f32>) -> Point2<f32>
 	{
 		let (bw, bh) = (self.buffer_width, self.buffer_height);
-		Point2::new(-real_pos.y, -real_pos.x) * 64.
+		Point2::new(-real_pos.y, -real_pos.x) * 16.
 			+ Vector2::new(bw / 6. + bw * 2. / 3. * equipment_idx as f32, bh / 4.)
 	}
 
@@ -1443,6 +1443,26 @@ fn make_projectile(
 	Ok(res)
 }
 
+fn make_muzzle_flash(
+	pos: Point3<f32>, world: &mut hecs::World, state: &mut game_state::GameState,
+) -> Result<hecs::Entity>
+{
+	let res = world.spawn((
+		comps::Position { pos: pos, dir: 0. },
+		comps::TimeToDie {
+			time_to_die: state.time() + 0.2,
+		},
+		comps::Lights {
+			lights: vec![comps::Light {
+				pos: Point3::origin(),
+				color: Color::from_rgb_f(1., 0.8, 0.2),
+				intensity: 4.,
+			}],
+		},
+	));
+	Ok(res)
+}
+
 fn make_ship(
 	pos: Point3<f32>, stats: &comps::ShipStats, team: comps::Team, level: i32,
 	world: &mut hecs::World, state: &mut game_state::GameState,
@@ -1455,7 +1475,7 @@ fn make_ship(
 		true,
 		vec![
 			comps::ItemSlot {
-				pos: Point2::new(0.5, 1.0),
+				pos: Point2::new(1., 2.0),
 				dir: Some(PI / 2.0),
 
 				item: Some(comps::Item {
@@ -1468,7 +1488,7 @@ fn make_ship(
 				is_inventory: false,
 			},
 			comps::ItemSlot {
-				pos: Point2::new(-0.5, 1.0),
+				pos: Point2::new(-1., 2.0),
 				dir: Some(PI / 2.0),
 
 				item: Some(comps::Item {
@@ -1481,7 +1501,7 @@ fn make_ship(
 				is_inventory: false,
 			},
 			comps::ItemSlot {
-				pos: Point2::new(0.0, -1.0),
+				pos: Point2::new(0.0, -2.0),
 				dir: Some(-PI / 2.0),
 				item: Some(comps::Item {
 					kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
@@ -1493,7 +1513,7 @@ fn make_ship(
 				is_inventory: false,
 			},
 			comps::ItemSlot {
-				pos: Point2::new(1.0, 0.0),
+				pos: Point2::new(5.0, 0.0),
 				dir: Some(0.),
 
 				item: Some(comps::Item {
@@ -2374,6 +2394,7 @@ impl Map
 
 		for (spawn_pos, spawn_dir, parent, team) in spawn_projectiles
 		{
+			make_muzzle_flash(spawn_pos, &mut self.world, state)?;
 			make_projectile(spawn_pos, spawn_dir, parent, team, &mut self.world, state)?;
 		}
 

@@ -23,5 +23,5 @@ void main()
     vec3 normal = normalize(vec3(0.5 * sign(var) * pow(abs(var), 0.5), 1., var2));
     //vec3 normal = normalize(vec3(0., 1., 0.));
     normal_buffer = vec4(normal, 1.);
-    albedo_buffer = vec4(0., 0., 0.7, 1.);
+    albedo_buffer = vec4(0.1, 0.1, 0.8, 1.);
 }

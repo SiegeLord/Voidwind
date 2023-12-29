@@ -1394,8 +1394,45 @@ fn make_target(
 	let mesh = "data/target.glb";
 	game_state::cache_mesh(state, mesh)?;
 	let res = world.spawn((
-		comps::Position { pos: pos, dir: 0. },
+		comps::Position {
+			pos: pos + Vector3::new(0., 1., 0.),
+			dir: 0.,
+		},
+		comps::Velocity {
+			vel: Vector3::zeros(),
+			dir_vel: PI,
+		},
 		comps::Mesh { mesh: mesh.into() },
+		comps::Lights {
+			lights: vec![comps::Light {
+				pos: Point3::origin(),
+				color: Color::from_rgb_f(0.2, 0.8, 0.2),
+				intensity: 4.,
+			}],
+		},
+	));
+	Ok(res)
+}
+
+fn make_swords(
+	pos: Point3<f32>, world: &mut hecs::World, state: &mut game_state::GameState,
+) -> Result<hecs::Entity>
+{
+	let mesh = "data/swords.glb";
+	game_state::cache_mesh(state, mesh)?;
+	let res = world.spawn((
+		comps::Position {
+			pos: pos + Vector3::new(0., 5., 0.),
+			dir: 0.,
+		},
+		comps::Velocity {
+			vel: Vector3::new(0., 10., 0.),
+			dir_vel: 0.,
+		},
+		comps::Mesh { mesh: mesh.into() },
+		comps::TimeToDie {
+			time_to_die: state.time() + 0.5,
+		},
 	));
 	Ok(res)
 }
@@ -2424,6 +2461,7 @@ impl Map
 
 		// Boarding.
 		let mut board_pairs = vec![];
+		let mut sword_positions = vec![];
 		for (id, (pos, ship_state)) in self
 			.world
 			.query::<(&comps::Position, &mut comps::ShipState)>()
@@ -2439,10 +2477,16 @@ impl Map
 						{
 							board_pairs.push((id, board_entity));
 							ship_state.time_to_board = state.time() + 0.5;
+							sword_positions.push(target_pos.pos);
 						}
 					}
 				}
 			}
+		}
+
+		for pos in sword_positions
+		{
+			make_swords(pos, &mut self.world, state)?;
 		}
 
 		{

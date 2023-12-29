@@ -9,6 +9,7 @@ use allegro_primitives::*;
 pub struct MaterialDesc
 {
 	pub texture: String,
+	pub material_id: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -110,11 +111,20 @@ impl MultiMesh
 	}
 
 	pub fn draw<'l, T: Fn(&str, &str) -> Option<&'l Bitmap>>(
-		&self, prim: &PrimitivesAddon, bitmap_fn: T,
+		&self, core: &Core, prim: &PrimitivesAddon, bitmap_fn: T,
 	)
 	{
 		for mesh in self.meshes.iter()
 		{
+			core.set_shader_uniform(
+				"material",
+				&[mesh
+					.material
+					.as_ref()
+					.map(|m| m.desc.material_id as f32)
+					.unwrap_or(0.)][..],
+			)
+			.ok();
 			prim.draw_indexed_prim(
 				&mesh.vtxs[..],
 				mesh.material

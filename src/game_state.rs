@@ -64,14 +64,18 @@ fn make_shader(
 			ShaderType::Vertex,
 			Some(&utils::read_to_string(vertex_path)?),
 		)
-		.unwrap();
+		.map_err(|s| format!("{vertex_path}:{s}"))?;
 
 	shader
 		.upgrade()
 		.unwrap()
 		.attach_shader_source(ShaderType::Pixel, Some(&utils::read_to_string(pixel_path)?))
-		.unwrap();
-	shader.upgrade().unwrap().build().unwrap();
+		.map_err(|s| format!("{pixel_path}:{s}"))?;
+	shader
+		.upgrade()
+		.unwrap()
+		.build()
+		.map_err(|s| format!("{vertex_path}, {pixel_path}:{s}"))?;
 	Ok(shader)
 }
 

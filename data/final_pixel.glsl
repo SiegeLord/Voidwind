@@ -12,10 +12,18 @@ uniform sampler2D albedo_buffer;
 void main()
 {
 	vec3 pos = texture(position_buffer, varying_texcoord).xyz;
-	vec3 normal = texture(normal_buffer, varying_texcoord).xyz;
+    vec4 normal_mat = texture(normal_buffer, varying_texcoord);
+    vec3 normal = normal_mat.xyz;
+    float material = normal_mat.w;
 	vec4 color = vec4(texture(albedo_buffer, varying_texcoord).rgb, 1);
-	vec4 light_color = vec4(texture(al_tex, varying_texcoord).rgb, 1);
-    out_color = light_color * color;
+	vec4 light_color = texture(al_tex, varying_texcoord);
+
+    float fullbright = float(material == 2);
+    vec3 final_light_color = (1 - fullbright) * light_color.xyz + fullbright;
+
+    float specular = light_color.w;
+    out_color = vec4(final_light_color * color.xyz + 1. * vec3(specular), 1.);
     //out_color = vec4(mod(pos.xyz, 1), 1);
     //out_color = vec4(normal, 1);
+    //out_color = vec4(1., material, 0., 1.);
 }

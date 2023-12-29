@@ -476,3 +476,17 @@ impl Team
 		*self != *other
 	}
 }
+
+#[derive(Clone, Debug)]
+pub struct Light
+{
+	pub pos: Point3<f32>,
+	pub color: Color,
+	pub intensity: f32,
+}
+
+#[derive(Clone, Debug)]
+pub struct Lights
+{
+	pub lights: Vec<Light>,
+}

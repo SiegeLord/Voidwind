@@ -1528,6 +1528,13 @@ fn make_ship(
 			tilt: 0.,
 			target_tilt: 0.,
 		},
+		comps::Lights {
+			lights: vec![comps::Light {
+				pos: Point3::new(0., 2., 1.),
+				color: Color::from_rgb_f(1., 1., 1.),
+				intensity: 4.,
+			}],
+		},
 	));
 	Ok(res)
 }
@@ -1629,13 +1636,15 @@ impl Map
 		utils::projection_transform(self.buffer_width, self.buffer_height, PI / 2.)
 	}
 
-	fn make_camera(&self) -> Isometry3<f32>
+	fn camera_pos(&self) -> Point3<f32>
 	{
 		let height = 30. / self.zoom;
-		utils::make_camera(
-			self.player_pos + Vector3::new(0., height, height / 2.),
-			self.player_pos,
-		)
+		self.player_pos + Vector3::new(0., height, height / 2.)
+	}
+
+	fn make_camera(&self) -> Isometry3<f32>
+	{
+		utils::make_camera(self.camera_pos(), self.player_pos)
 	}
 
 	fn add_message(&mut self, message: String, state: &game_state::GameState)
@@ -2764,10 +2773,10 @@ impl Map
 		{
 			let screen_pos =
 				(project.to_homogeneous() * camera.to_homogeneous()).transform_point(&pos.pos);
-			if screen_pos.x < -1.2
-				|| screen_pos.x > 1.2
-				|| screen_pos.y < -1.2
-				|| screen_pos.y > 1.2
+			if screen_pos.x < -1.5
+				|| screen_pos.x > 1.5
+				|| screen_pos.y < -1.5
+				|| screen_pos.y > 1.5
 			{
 				continue;
 			}
@@ -2814,12 +2823,20 @@ impl Map
 			state
 				.get_mesh(&mesh.mesh)
 				.unwrap()
-				.draw(&state.prim, flag_mapper) //|s| state.get_bitmap(s));
+				.draw(&state.core, &state.prim, flag_mapper) //|s| state.get_bitmap(s));
 		}
 
 		// Light pass.
 		state.core.set_target_bitmap(state.light_buffer.as_ref());
-		state.core.clear_to_color(Color::from_rgb_f(0.1, 0.1, 0.1));
+		state
+			.core
+			.set_blender(BlendOperation::Add, BlendMode::One, BlendMode::Zero);
+		state
+			.core
+			.clear_to_color(Color::from_rgba_f(0.1, 0.1, 0.1, 0.));
+		state
+			.core
+			.set_blender(BlendOperation::Add, BlendMode::One, BlendMode::One);
 		state
 			.core
 			.use_projection_transform(&utils::mat4_to_transform(project.to_homogeneous()));
@@ -2830,9 +2847,6 @@ impl Map
 			gl::DepthMask(gl::FALSE);
 			gl::CullFace(gl::FRONT);
 		}
-		state
-			.core
-			.set_blender(BlendOperation::Add, BlendMode::One, BlendMode::One);
 
 		state
 			.core
@@ -2853,40 +2867,68 @@ impl Map
 				&[[self.buffer_width, self.buffer_height]][..],
 			)
 			.ok(); //.unwrap();
+		let camera_pos = self.camera_pos();
+		state
+			.core
+			.set_shader_uniform(
+				"camera_pos",
+				&[[camera_pos.x, camera_pos.y, camera_pos.z]][..],
+			)
+			.ok(); //.unwrap();
 
-		for (c, light_pos) in [(Color::from_rgb_f(0.5, 0.5, 0.5), Point3::new(0., 5., 0.))]
+		let g_buffer = state.g_buffer.as_ref().unwrap();
+		unsafe {
+			gl::ActiveTexture(gl::TEXTURE0);
+			gl::BindTexture(gl::TEXTURE_2D, g_buffer.position_tex);
+			gl::ActiveTexture(gl::TEXTURE1);
+			gl::BindTexture(gl::TEXTURE_2D, g_buffer.normal_tex);
+		}
+
+		for (_, (pos, lights)) in self
+			.world
+			.query::<(&comps::Position, &comps::Lights)>()
+			.iter()
 		{
-			let (r, g, b) = c.to_rgb_f();
-			state
-				.core
-				.set_shader_uniform("light_color", &[[r, g, b, 1.0]][..])
-				.ok(); //.unwrap();
-			state
-				.core
-				.set_shader_uniform(
-					"light_pos",
-					&[[light_pos[0], light_pos[1], light_pos[2]]][..],
-				)
-				.ok(); //.unwrap();
-
-			let shift =
-				Similarity3::from_isometry(Isometry3::new(light_pos.coords, Vector3::y()), 40.);
-
-			state.core.use_transform(&utils::mat4_to_transform(
-				camera.to_homogeneous() * shift.to_homogeneous(),
-			));
-
-			let g_buffer = state.g_buffer.as_ref().unwrap();
-			unsafe {
-				gl::ActiveTexture(gl::TEXTURE0);
-				gl::BindTexture(gl::TEXTURE_2D, g_buffer.position_tex);
-				gl::ActiveTexture(gl::TEXTURE1);
-				gl::BindTexture(gl::TEXTURE_2D, g_buffer.normal_tex);
-			}
-
-			if let Some(mesh) = state.get_mesh("data/sphere.glb")
+			let common_shift = Isometry3::new(pos.pos.coords, pos.dir * Vector3::y());
+			for light in &lights.lights
 			{
-				mesh.draw(&state.prim, |_, s| state.get_bitmap(s));
+				let shift = common_shift * Isometry3::new(light.pos.coords, Vector3::zeros());
+				let transform = Similarity3::from_isometry(shift, 20. * light.intensity.sqrt());
+				let light_pos = transform.transform_point(&Point3::origin());
+
+				let screen_pos = (project.to_homogeneous() * camera.to_homogeneous())
+					.transform_point(&light_pos);
+				if screen_pos.x < -1.5
+					|| screen_pos.x > 1.5
+					|| screen_pos.y < -1.5
+					|| screen_pos.y > 1.5
+				{
+					continue;
+				}
+
+				let (r, g, b) = light.color.to_rgb_f();
+
+				state
+					.core
+					.set_shader_uniform("light_color", &[[r, g, b, 1.0]][..])
+					.ok(); //.unwrap();
+				state
+					.core
+					.set_shader_uniform("light_pos", &[[light_pos.x, light_pos.y, light_pos.z]][..])
+					.ok(); //.unwrap();
+				state
+					.core
+					.set_shader_uniform("light_intensity", &[light.intensity][..])
+					.ok(); //.unwrap();
+
+				state.core.use_transform(&utils::mat4_to_transform(
+					camera.to_homogeneous() * transform.to_homogeneous(),
+				));
+
+				if let Some(mesh) = state.get_mesh("data/sphere.glb")
+				{
+					mesh.draw(&state.core, &state.prim, |_, s| state.get_bitmap(s));
+				}
 			}
 		}
 

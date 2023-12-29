@@ -131,11 +131,7 @@ impl Cell
 		state: &mut game_state::GameState,
 	) -> Result<Self>
 	{
-		let world_center = Point3::new(
-			(center.x * CELL_SIZE) as f32,
-			0.,
-			(center.y * CELL_SIZE) as f32,
-		);
+		let world_center = Self::cell_to_world(center);
 
 		//dbg!(world_center);
 
@@ -186,11 +182,12 @@ impl Cell
 
 	pub fn world_center(&self) -> Point3<f32>
 	{
-		Point3::new(
-			(self.center.x * CELL_SIZE) as f32,
-			0.,
-			(self.center.y * CELL_SIZE) as f32,
-		)
+		Self::cell_to_world(self.center)
+	}
+
+	pub fn cell_to_world(pos: Point2<i32>) -> Point3<f32>
+	{
+		Point3::new((pos.x * CELL_SIZE) as f32, 0., (pos.y * CELL_SIZE) as f32)
 	}
 
 	pub fn world_to_cell(pos: &Point3<f32>) -> Point2<i32>
@@ -1755,6 +1752,33 @@ impl Map
 			)?);
 		}
 
+		// Recenter.
+		for cell in &mut self.cells
+		{
+			cell.center -= player_cell.coords;
+		}
+		let offt = Cell::cell_to_world(player_cell).coords;
+		for (_, pos) in self.world.query::<&mut comps::Position>().iter()
+		{
+			pos.pos -= offt;
+		}
+		for (_, target) in self.world.query::<&mut comps::Target>().iter()
+		{
+			for waypoint in &mut target.waypoints
+			{
+				waypoint.pos -= offt;
+			}
+		}
+		for (_, equipment) in self.world.query::<&mut comps::Equipment>().iter()
+		{
+			equipment.target_pos -= offt;
+		}
+		self.player_pos -= offt;
+		if offt.magnitude() > 0.0
+		{
+			dbg!("recentered");
+		}
+
 		// Collision.
 		let center = self.player_pos.zx();
 		let mut grid = spatial_grid::SpatialGrid::new(64, 64, 16.0, 16.0);
@@ -2566,8 +2590,11 @@ impl Map
 					else if target.waypoints.is_empty()
 					{
 						let cell_id = (0..self.cells.len()).choose(&mut self.rng).unwrap();
+						let d = CELL_SIZE as f32 / 2.0;
+						let dx = self.rng.gen_range(-d..d);
+						let dy = self.rng.gen_range(-d..d);
 						target.waypoints.push(comps::Waypoint {
-							pos: self.cells[cell_id].world_center(),
+							pos: self.cells[cell_id].world_center() + Vector3::new(dx, 0., dy),
 							marker: None,
 						});
 					}

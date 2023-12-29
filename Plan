@@ -1,20 +1,19 @@
-Wednesday
+TODO:
+    - Control groups (on inventory screen, shown on both screens)
+    - Economy.
 
+Done:
     - Item destruction.
-    
-    Control groups (on inventory screen, shown on both screens)
-    
-    Economy.
+    - Experience
+    - A different method for weapon recovery, based on which weapons need recovering to encourage control groups
+    - Crew recruitment
+    - Boarding (for player)
+    - Select target
+    - Ship systems (see below, still current mostly)
+    - Priority selection (on main screen, show a symbol when focused, a star?)
+    - Don't switch with dead vessels
 
-    Done:
-        - Experience
-        - A different method for weapon recovery, based on which weapons need recovering to encourage control groups
-        - Crew recruitment
-        - Boarding (for player)
-        - Select target
-        - Ship systems (see below, still current mostly)
-        - Priority selection (on main screen, show a symbol when focused, a star?)
-        - Don't switch with dead vessels
+Wednesday
 
 Thursday
 

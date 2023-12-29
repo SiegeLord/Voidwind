@@ -163,7 +163,7 @@ impl ItemKind
 	{
 		match self
 		{
-			ItemKind::Weapon(weapon) =>
+			ItemKind::Weapon(_) =>
 			{
 				format!("Cannon")
 			}

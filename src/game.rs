@@ -5,6 +5,7 @@ use crate::{
 use allegro::*;
 use allegro_font::*;
 use allegro_primitives::*;
+use gltf::accessor::util::SparseIndicesIter;
 use na::{
 	Isometry3, Matrix4, Perspective3, Point2, Point3, Quaternion, RealField, Rotation2, Rotation3,
 	Translation3, Unit, Vector2, Vector3, Vector4,
@@ -138,32 +139,47 @@ impl Cell
 
 		//dbg!(world_center);
 
-		let ship_stats = comps::ShipStats {
-			hull: 100.,
-			crew: 10,
-			sails: 30.,
-			infirmary: 20.,
-			armor: [20., 20., 20., 20.], // front, right, back, left
-			speed: 10.,
-			dir_speed: 1.,
-		};
+		let w = CELL_SIZE as f32 / 2. - 10.;
 
-		let team = *[comps::Team::English, comps::Team::French]
-			.choose(rng)
-			.unwrap();
-		//let team = comps::Team::French;
-		//let team = comps::Team::English;
+		for _ in 0..16
+		{
+			let dx = world_center.x + rng.gen_range(-w..w);
+			let dy = world_center.y + rng.gen_range(-w..w);
 
-		let ship = make_ship(world_center, &ship_stats, team, 1, world, state)?;
+			let ship_stats = comps::ShipStats {
+				hull: 100.,
+				crew: 10,
+				sails: 30.,
+				infirmary: 20.,
+				armor: [20., 20., 20., 20.], // front, right, back, left
+				speed: 10.,
+				dir_speed: 1.,
+			};
 
-		world.insert_one(
-			ship,
-			comps::AI {
-				state: comps::AIState::Idle,
-			},
-		)?;
-		//world.get::<&mut comps::ShipState>(ship).unwrap().crew = 1;
-		//world.get::<&mut comps::ShipState>(ship).unwrap().hull = 1.;
+			let team = *[comps::Team::English, comps::Team::French]
+				.choose(rng)
+				.unwrap();
+			//let team = comps::Team::French;
+			//let team = comps::Team::English;
+
+			let ship = make_ship(
+				world_center + Vector3::new(dx, 0., dy),
+				&ship_stats,
+				team,
+				1,
+				world,
+				state,
+			)?;
+
+			world.insert_one(
+				ship,
+				comps::AI {
+					state: comps::AIState::Idle,
+				},
+			)?;
+			//world.get::<&mut comps::ShipState>(ship).unwrap().crew = 1;
+			//world.get::<&mut comps::ShipState>(ship).unwrap().hull = 1.;
+		}
 
 		Ok(Self { center: center })
 	}
@@ -413,15 +429,23 @@ impl HUD
 
 		if let Some(target_entity) = map.target_entity
 		{
-			if map.target_entity != Some(map.player)
+			if let (Ok(ship_state), Ok(stats)) = (
+				map.world.get::<&comps::ShipState>(target_entity),
+				map.world.get::<&comps::ShipStats>(target_entity),
+			)
 			{
-				if let (Ok(ship_state), Ok(stats)) = (
-					map.world.get::<&comps::ShipState>(target_entity),
-					map.world.get::<&comps::ShipStats>(target_entity),
-				)
-				{
-					draw_ship_state(&*ship_state, &*stats, 16., dh - 256., state);
-				}
+				draw_ship_state(&*ship_state, &*stats, 16., dh - 256., state);
+			}
+			if let Ok(ai) = map.world.get::<&comps::AI>(target_entity)
+			{
+				state.core.draw_text(
+					&state.ui_font,
+					Color::from_rgb_f(1., 0., 0.),
+					16.,
+					dh - 300.,
+					FontAlign::Left,
+					&format!("State: {:?}", ai.state),
+				);
 			}
 		}
 		state.core.draw_text(
@@ -657,6 +681,9 @@ impl Game
 			.core
 			.use_shader(Some(&*state.default_shader.upgrade().unwrap()))
 			.unwrap();
+		state
+			.core
+			.set_blender(BlendOperation::Add, BlendMode::One, BlendMode::InverseAlpha);
 
 		if self.subscreens.is_empty()
 		{
@@ -1649,7 +1676,7 @@ impl Map
 					if cell.contains(&position.pos)
 					{
 						to_die.push(id);
-						println!("Killed {:?} {}", id, cell.center);
+						//println!("Killed {:?} {}", id, cell.center);
 					}
 				}
 			}
@@ -1681,7 +1708,7 @@ impl Map
 				if !found
 				{
 					new_cell_centers.push(cell_center);
-					println!("New cell {}", cell_center);
+					//println!("New cell {}", cell_center);
 				}
 			}
 		}
@@ -2026,7 +2053,7 @@ impl Map
 								{
 									if self.rng.gen_bool(destroy_prob as f64)
 									{
-										println!("Destroyed {:?}", slot.item);
+										//println!("Destroyed {:?}", slot.item);
 										if !destroyed && other_id == self.player
 										{
 											if let Some(item) = slot.item.as_ref()
@@ -2062,7 +2089,7 @@ impl Map
 									0.3_f32.powi(level_diff - 4)
 								};
 								ship_state.experience += f * comps::enemy_experience(level);
-								dbg!(ship_state.experience);
+								//dbg!(ship_state.experience);
 								ship_state.compute_level();
 							}
 						}
@@ -2460,6 +2487,8 @@ impl Map
 			)>()
 			.iter()
 		{
+			let sense_radius = 60.;
+			let attack_radius = 20.;
 			if Some(id) == self.dock_entity
 			{
 				target.clear(|m| to_die.push(m));
@@ -2477,7 +2506,6 @@ impl Map
 				}
 				comps::AIState::Idle =>
 				{
-					let sense_radius = 60.;
 					let entries = grid.query_rect(
 						pos.pos.zx() - Vector2::new(sense_radius, sense_radius) - center.coords,
 						pos.pos.zx() + Vector2::new(sense_radius, sense_radius) - center.coords,
@@ -2500,7 +2528,7 @@ impl Map
 							}
 						},
 					);
-					if let Some(entry) = entries.first()
+					if let Some(entry) = entries.choose(&mut self.rng)
 					{
 						ai.state = comps::AIState::Pursuing(entry.inner.entity);
 					}
@@ -2532,12 +2560,12 @@ impl Map
 							let target_pos =
 								self.world.get::<&comps::Position>(target_entity).unwrap();
 							let diff = pos.pos - target_pos.pos;
-							if diff.magnitude() < 20.
+							if diff.magnitude() < attack_radius
 							{
 								target.clear(|m| to_die.push(m));
 								ai.state = comps::AIState::Attacking(target_entity);
 							}
-							else if diff.magnitude() > 30.
+							else if diff.magnitude() > sense_radius
 							{
 								ai.state = comps::AIState::Idle;
 							}
@@ -2576,7 +2604,8 @@ impl Map
 							let target_pos =
 								self.world.get::<&comps::Position>(target_entity).unwrap();
 							let diff = target_pos.pos - pos.pos;
-							if diff.magnitude() > 20.
+							// Too far to shoot.
+							if diff.magnitude() > attack_radius
 							{
 								ai.state = comps::AIState::Pursuing(target_entity);
 								equipment.want_action_1 = false;
@@ -2657,19 +2686,33 @@ impl Map
 
 	fn draw(&mut self, state: &game_state::GameState) -> Result<()>
 	{
-		state.core.set_depth_test(Some(DepthFunction::Less));
+		// Forward pass.
 
 		let project = self.make_project();
+		let camera = self.make_camera();
 		state
 			.core
 			.use_projection_transform(&utils::mat4_to_transform(project.to_homogeneous()));
+		state
+			.core
+			.use_transform(&utils::mat4_to_transform(camera.to_homogeneous()));
 
-		let camera = self.make_camera();
+		state.g_buffer.as_ref().unwrap().bind();
+		unsafe {
+			gl::Disable(gl::CULL_FACE);
+		}
+		state
+			.core
+			.set_blender(BlendOperation::Add, BlendMode::One, BlendMode::Zero);
+		state.core.set_depth_test(Some(DepthFunction::Less));
+		state.core.clear_depth_buffer(1.);
+		state.core.clear_to_color(Color::from_rgb_f(0., 0., 0.));
 
-		let tl = utils::get_ground_from_screen(-1.0, 1.0, project, camera);
-		let tr = utils::get_ground_from_screen(1.0, 1.0, project, camera);
-		let bl = utils::get_ground_from_screen(-1.0, -1.0, project, camera);
-		let br = utils::get_ground_from_screen(1.0, -1.0, project, camera);
+        let shift = Vector3::new(0., -0.01, 0.);
+		let tl = utils::get_ground_from_screen(-1.0, 1.0, project, camera) + shift;
+		let tr = utils::get_ground_from_screen(1.0, 1.0, project, camera) + shift;
+		let bl = utils::get_ground_from_screen(-1.0, -1.0, project, camera) + shift;
+		let br = utils::get_ground_from_screen(1.0, -1.0, project, camera) + shift;
 		let vtxs = [
 			mesh::WaterVertex {
 				x: tl.x,
@@ -2694,9 +2737,6 @@ impl Map
 		];
 		state
 			.core
-			.use_transform(&utils::mat4_to_transform(camera.to_homogeneous()));
-		state
-			.core
 			.use_shader(Some(&*state.water_shader.upgrade().unwrap()))
 			.unwrap();
 		state
@@ -2713,13 +2753,24 @@ impl Map
 
 		state
 			.core
-			.use_shader(Some(&*state.basic_shader.upgrade().unwrap()))
+			.use_shader(Some(&*state.forward_shader.upgrade().unwrap()))
 			.unwrap();
+
 		for (id, (pos, mesh)) in self
 			.world
 			.query::<(&comps::Position, &comps::Mesh)>()
 			.iter()
 		{
+			let screen_pos =
+				(project.to_homogeneous() * camera.to_homogeneous()).transform_point(&pos.pos);
+			if screen_pos.x < -1.2
+				|| screen_pos.x > 1.2
+				|| screen_pos.y < -1.2
+				|| screen_pos.y > 1.2
+			{
+				continue;
+			}
+
 			let mut shift = Isometry3::new(pos.pos.coords, pos.dir * Vector3::y()).to_homogeneous();
 			if let Ok(tilt) = self.world.get::<&comps::Tilt>(id)
 			{
@@ -2764,6 +2815,122 @@ impl Map
 				.unwrap()
 				.draw(&state.prim, flag_mapper) //|s| state.get_bitmap(s));
 		}
+
+		// Light pass.
+		state.core.set_target_bitmap(state.light_buffer.as_ref());
+		state.core.clear_to_color(Color::from_rgb_f(1., 1., 1.));
+
+		// Final pass.
+		let g_buffer = state.g_buffer.as_ref().unwrap();
+		state.core.set_target_bitmap(state.buffer.as_ref());
+		state.core.clear_to_color(Color::from_rgb_f(0., 0.3, 0.0));
+		state.core.set_depth_test(None);
+		state
+			.core
+			.set_blender(BlendOperation::Add, BlendMode::One, BlendMode::Zero);
+		// Copy depth buffer.
+		unsafe {
+			gl::BindFramebuffer(gl::READ_FRAMEBUFFER, g_buffer.frame_buffer);
+			gl::BlitFramebuffer(
+				0,
+				0,
+				self.buffer_width as i32,
+				self.buffer_height as i32,
+				0,
+				0,
+				self.buffer_width as i32,
+				self.buffer_height as i32,
+				gl::DEPTH_BUFFER_BIT,
+				gl::NEAREST,
+			);
+		}
+
+		let ortho_mat = Matrix4::new_orthographic(
+			0.,
+			self.buffer_width as f32,
+			self.buffer_height as f32,
+			0.,
+			-1.,
+			1.,
+		);
+		state
+			.core
+			.use_projection_transform(&utils::mat4_to_transform(ortho_mat));
+		state.core.use_transform(&Transform::identity());
+
+		state
+			.core
+			.use_shader(Some(&*state.final_shader.upgrade().unwrap()))
+			.unwrap();
+		state
+			.core
+			.set_shader_uniform("position_buffer", &[1_i32][..])
+			.ok(); //unwrap();
+		state
+			.core
+			.set_shader_uniform("normal_buffer", &[2_i32][..])
+			.ok(); //unwrap();
+		state
+			.core
+			.set_shader_uniform("albedo_buffer", &[3_i32][..])
+			.ok(); //.unwrap();
+	   //state
+	   //	.core
+	   //	.set_shader_uniform(
+	   //		"camera_pos",
+	   //		&[[camera_pos[0], camera_pos[1], camera_pos[2]]][..],
+	   //	)
+	   //	.ok(); //unwrap();
+		unsafe {
+			gl::Disable(gl::CULL_FACE);
+			gl::ActiveTexture(gl::TEXTURE1);
+			gl::BindTexture(gl::TEXTURE_2D, g_buffer.position_tex);
+			gl::ActiveTexture(gl::TEXTURE2);
+			gl::BindTexture(gl::TEXTURE_2D, g_buffer.normal_tex);
+			gl::ActiveTexture(gl::TEXTURE3);
+			gl::BindTexture(gl::TEXTURE_2D, g_buffer.albedo_tex);
+		}
+		let vertices = [
+			Vertex {
+				x: 0.,
+				y: 0.,
+				z: 0.,
+				u: 0.,
+				v: 1.,
+				color: Color::from_rgb_f(1.0, 1.0, 1.0),
+			},
+			Vertex {
+				x: self.buffer_width,
+				y: 0.,
+				z: 0.,
+				u: 1.,
+				v: 1.,
+				color: Color::from_rgb_f(1.0, 1.0, 1.0),
+			},
+			Vertex {
+				x: self.buffer_width,
+				y: self.buffer_height,
+				z: 0.,
+				u: 1.,
+				v: 0.,
+				color: Color::from_rgb_f(1.0, 1.0, 1.0),
+			},
+			Vertex {
+				x: 0.,
+				y: self.buffer_height,
+				z: 0.,
+				u: 0.,
+				v: 0.,
+				color: Color::from_rgb_f(1.0, 1.0, 1.0),
+			},
+		];
+		state.prim.draw_prim(
+			&vertices[..],
+			state.light_buffer.as_ref(),
+			0,
+			4,
+			PrimType::TriangleFan,
+		);
 
 		Ok(())
 	}

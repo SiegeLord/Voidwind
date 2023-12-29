@@ -44,6 +44,7 @@ gl = "0.14.0"
 gl_loader = "0.1.2"
 rect_packer = "0.2.1"
 memoffset = "0.9"
+circular-buffer = "0.1.6"
 
 [profile.release]
 debug = true

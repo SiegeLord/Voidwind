@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::{atlas, controls, mesh, sfx, sprite, utils};
+use crate::{atlas, controls, deferred, mesh, sfx, sprite, utils};
 use allegro::*;
 use allegro_font::*;
 use allegro_image::*;
@@ -167,6 +167,13 @@ pub struct GameState
 	pub basic_shader: sync::Weak<Shader>,
 	pub water_shader: sync::Weak<Shader>,
 	pub default_shader: sync::Weak<Shader>,
+
+	pub forward_shader: sync::Weak<Shader>,
+	pub final_shader: sync::Weak<Shader>,
+
+	pub buffer: Option<Bitmap>,
+	pub light_buffer: Option<Bitmap>,
+	pub g_buffer: Option<deferred::GBuffer>,
 }
 
 impl GameState
@@ -217,6 +224,11 @@ impl GameState
 			basic_shader: sync::Weak::new(),
 			water_shader: sync::Weak::new(),
 			default_shader: sync::Weak::new(),
+			forward_shader: sync::Weak::new(),
+			final_shader: sync::Weak::new(),
+			buffer: None,
+			light_buffer: None,
+			g_buffer: None,
 		})
 	}
 
@@ -228,7 +240,38 @@ impl GameState
 			make_shader(display, "data/basic_vertex.glsl", "data/basic_pixel.glsl")?;
 		self.water_shader =
 			make_shader(display, "data/water_vertex.glsl", "data/water_pixel.glsl")?;
+		self.forward_shader = make_shader(
+			display,
+			"data/forward_vertex.glsl",
+			"data/forward_pixel.glsl",
+		)?;
+		self.final_shader =
+			make_shader(display, "data/final_vertex.glsl", "data/final_pixel.glsl")?;
+
 		self.default_shader = make_default_shader(&self.core, display)?;
+
+    	self.core.set_new_bitmap_depth(16);
+		self.light_buffer = Some(
+			Bitmap::new(
+				&self.core,
+				self.display_width as i32,
+				self.display_height as i32,
+			)
+			.map_err(|_| "Couldn't create bitmap".to_string())?,
+		);
+		self.buffer = Some(
+			Bitmap::new(
+				&self.core,
+				self.display_width as i32,
+				self.display_height as i32,
+			)
+			.map_err(|_| "Couldn't create bitmap".to_string())?,
+		);
+    	self.core.set_new_bitmap_depth(0);
+		self.g_buffer = Some(deferred::GBuffer::new(
+			self.display_width as i32,
+			self.display_height as i32,
+		)?);
 		Ok(())
 	}
 

@@ -67,9 +67,12 @@ impl Sfx
 		})
 	}
 
-	pub fn get_sample<'l>(&'l self, name: &str) -> Option<&'l Sample>
+	pub fn get_sample<'l>(&'l self, name: &str) -> Result<&'l Sample>
 	{
-		self.samples.get(name)
+		Ok(self
+			.samples
+			.get(name)
+			.ok_or_else(|| format!("{name} is not cached!"))?)
 	}
 
 	pub fn update_sounds(&mut self) -> Result<()>
@@ -146,17 +149,26 @@ impl Sfx
 	) -> Result<()>
 	{
 		self.cache_sample(name)?;
+		let dist_sq = (sound_pos - camera_pos).norm_squared();
+		let nominal_dist = 50.0;
+		let volume = self.sfx_volume
+			* utils::clamp(
+				self.sfx_volume * volume * nominal_dist * nominal_dist / dist_sq,
+				0.,
+				1.,
+			);
+		if volume < 0.01
+		{
+			return Ok(());
+		}
 
 		if self.sample_instances.len() < 50
 		{
 			let sample = self.samples.get(name).unwrap();
 
-			let dist_sq = (sound_pos - camera_pos).norm_squared();
-			let volume = self.sfx_volume
-				* utils::clamp(self.sfx_volume * volume * 400000. / dist_sq, 0., 1.);
-			println!("volume: {}", volume);
+			//println!("volume: {}", volume);
 			let diff = sound_pos - camera_pos;
-			let pan = diff.x / (diff.x.powf(2.) + 100.0_f32.powf(2.)).sqrt();
+			let pan = (diff.x / 20.).tanh();
 
 			let instance = self
 				.sink

@@ -199,7 +199,7 @@ impl Cell
 		for _ in 0..16
 		{
 			let dx = world_center.x + rng.gen_range(-w..w);
-			let dy = world_center.y + rng.gen_range(-w..w);
+			let dy = world_center.z + rng.gen_range(-w..w);
 
 			let idx = rand_distr::WeightedIndex::new([3., 3., 1.])
 				.unwrap()
@@ -216,8 +216,21 @@ impl Cell
 			let idx = rand_distr::WeightedIndex::new([10., 5., 1.])
 				.unwrap()
 				.sample(rng);
+			let ship_pos = Point3::new(dx, 0., dy);
+			if center != Cell::world_to_cell(&ship_pos)
+			{
+				println!(
+					"BAD {:?} {:?} {:?} {:?} {} {}",
+					center,
+					Cell::world_to_cell(&ship_pos),
+					world_center,
+					ship_pos,
+					dx,
+					dy
+				);
+			}
 			let ship = make_ship(
-				world_center + Vector3::new(dx, 0., dy),
+				ship_pos,
 				[
 					"data/small_ship.cfg",
 					"data/medium_ship.cfg",
@@ -240,15 +253,15 @@ impl Cell
 			//world.get::<&mut comps::ShipState>(ship).unwrap().hull = 1.;
 		}
 
-		for _ in 0..16
+		for _ in 0..0
 		{
 			let dx = world_center.x + rng.gen_range(-w..w);
-			let dy = world_center.y + rng.gen_range(-w..w);
+			let dy = world_center.z + rng.gen_range(-w..w);
 
 			let dir = rng.gen_range(0.0..PI * 2.0);
 			let vel = Vector3::new(dir.cos(), 0., dir.sin()) * 5.;
 
-			make_wisp(world_center + Vector3::new(dx, 0., dy), vel, world, state)?;
+			make_wisp(Point3::new(dx, 0., dy), vel, world, state)?;
 		}
 
 		Ok(Self { center: center })
@@ -1535,7 +1548,7 @@ fn make_wisp(
 		comps::Lights {
 			lights: vec![comps::Light {
 				pos: Point3::origin(),
-				color: Color::from_rgb_f(1., 0.6, 1.),
+				color: Color::from_rgb_f(0.2, 0.9, 0.9),
 				intensity: 3.,
 			}],
 		},
@@ -1824,7 +1837,7 @@ impl Map
 			//ship_state.sails = 30.;
 			//ship_state.armor[0] = 50.;
 			//ship_state.armor[1] = 0.;
-			ship_state.experience = comps::level_experience(1);
+			ship_state.experience = comps::level_experience(10);
 			ship_state.compute_level();
 		}
 
@@ -1846,6 +1859,7 @@ impl Map
 		state.cache_sprite("data/repair.cfg")?;
 		state.cache_sprite("data/switch.cfg")?;
 		state.cache_sprite("data/recruit.cfg")?;
+		state.sfx.cache_sample("data/cannon_shot.ogg")?;
 		game_state::cache_mesh(state, "data/sphere.glb")?;
 
 		Ok(Self {
@@ -1915,24 +1929,22 @@ impl Map
 		for cell in &self.cells
 		{
 			let disp = cell.center - player_cell;
-			if disp.x.abs() > CELL_RADIUS || disp.y.abs() > CELL_RADIUS
+			if disp.x.abs() <= CELL_RADIUS && disp.y.abs() <= CELL_RADIUS
 			{
-				for (id, position) in self.world.query::<&comps::Position>().iter()
-				{
-					if cell.contains(&position.pos)
-					{
-						to_die.push(id);
-						//println!("Killed {:?} {}", id, cell.center);
-					}
-				}
-			}
-			else
-			{
-				good_cells.push(cell.clone())
+				good_cells.push(cell.clone());
 			}
 		}
-
 		self.cells.clear();
+
+		for (id, position) in self.world.query::<&comps::Position>().iter()
+		{
+			let cell = Cell::world_to_cell(&position.pos);
+			let disp = cell - player_cell;
+			if disp.x.abs() > CELL_RADIUS || disp.y.abs() > CELL_RADIUS
+			{
+				to_die.push(id);
+			}
+		}
 
 		for dy in -CELL_RADIUS..=CELL_RADIUS
 		{
@@ -2652,6 +2664,12 @@ impl Map
 										id,
 										ship_state.team,
 									));
+									state.sfx.play_positional_sound(
+										"data/cannon_shot.ogg",
+										spawn_pos.xz(),
+										self.player_pos.xz(),
+										0.05,
+									)?;
 									weapon.readiness = 0.;
 								}
 							}
@@ -3030,6 +3048,10 @@ impl Map
 		// Remove dead entities
 		to_die.sort();
 		to_die.dedup();
+		if !to_die.is_empty()
+		{
+			//println!("   Despawned: {}", to_die.len());
+		}
 		for id in to_die
 		{
 			//println!("died {id:?}");
@@ -3149,41 +3171,49 @@ impl Map
 				.set_shader_transform("model_matrix", &utils::mat4_to_transform(shift))
 				.ok();
 
-			let flag_mapper = |material: &mesh::Material, texture_name: &str| -> Result<&Bitmap> {
-				if material.name == "flag_material"
-				{
-					unsafe {
-						gl::Disable(gl::CULL_FACE);
-					}
-					if let Ok(ship_state) = self.world.get::<&comps::ShipState>(id)
+			let material_mapper =
+				|material: &mesh::Material, texture_name: &str| -> Result<&Bitmap> {
+					if material.name == "flag_material"
 					{
-						let texture_name = match ship_state.team
+						unsafe {
+							gl::Disable(gl::CULL_FACE);
+						}
+						if let Ok(ship_state) = self.world.get::<&comps::ShipState>(id)
 						{
-							comps::Team::English => "data/english_flag.png",
-							comps::Team::French => "data/french_flag.png",
-							comps::Team::Pirate => "data/pirate_flag.png",
-							_ => texture_name,
-						};
+							let texture_name = match ship_state.team
+							{
+								comps::Team::English => "data/english_flag.png",
+								comps::Team::French => "data/french_flag.png",
+								comps::Team::Pirate => "data/pirate_flag.png",
+								_ => texture_name,
+							};
+							state.get_bitmap(texture_name)
+						}
+						else
+						{
+							state.get_bitmap(texture_name)
+						}
+					}
+					else if material.name == "fire_material"
+					{
+						unsafe {
+							gl::Enable(gl::CULL_FACE);
+						}
 						state.get_bitmap(texture_name)
 					}
 					else
 					{
+						unsafe {
+							gl::Disable(gl::CULL_FACE);
+						}
 						state.get_bitmap(texture_name)
 					}
-				}
-				else
-				{
-					unsafe {
-						gl::Enable(gl::CULL_FACE);
-					}
-					state.get_bitmap(texture_name)
-				}
-			};
+				};
 
 			state
 				.get_mesh(&mesh.mesh)
 				.unwrap()
-				.draw(&state.core, &state.prim, flag_mapper) //|s| state.get_bitmap(s));
+				.draw(&state.core, &state.prim, material_mapper) //|s| state.get_bitmap(s));
 		}
 
 		// Light pass.

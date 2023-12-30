@@ -3,6 +3,7 @@ TODO:
     - Economy.
     - Enemy attack order on spawn
     - Special boss event + win condition
+    - Level Up message
 
 To draw:
 
@@ -10,11 +11,14 @@ To draw:
     - Big Ship - Done
     - Boss Ship - Done
     - Gun - Done
-    - Officer
-    - Cotton ball
-    - Tobacco leaf
-    - Crate (goods)
-    - Repair Symbol
+    - Officer - Done
+    - Cotton ball - Done
+    - Tobacco leaf - Done
+    - Crate (goods) - Done
+    - Repair Symbol - Done
+    - Switch symbol - Done
+    - Recruit symbol - Done
+    - New wisp model
 
 Extra:
     - For the target indicator, do an offscreen version of it.

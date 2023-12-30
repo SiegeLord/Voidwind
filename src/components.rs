@@ -197,7 +197,7 @@ impl ItemKind
 		{
 			ItemKind::Weapon(_) =>
 			{
-				state.get_sprite("data/cannon.cfg").unwrap().draw(
+				state.get_sprite("data/cannon_rare.cfg").unwrap().draw(
 					pos,
 					0,
 					Color::from_rgb_f(1., 1., 1.),

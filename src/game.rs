@@ -5,6 +5,7 @@ use crate::{
 use allegro::*;
 use allegro_font::*;
 use allegro_primitives::*;
+use gl::CULL_FACE;
 use gltf::accessor::util::SparseIndicesIter;
 use na::{
 	Isometry3, Matrix4, Perspective3, Point2, Point3, Quaternion, RealField, Rotation2, Rotation3,
@@ -88,7 +89,7 @@ pub struct Button
 {
 	loc: Point2<f32>,
 	size: Vector2<f32>,
-	text: String,
+	sprite: String,
 	on: bool,
 	hover: bool,
 	is_toggle: bool,
@@ -96,12 +97,12 @@ pub struct Button
 
 impl Button
 {
-	fn new(loc: Point2<f32>, size: Vector2<f32>, is_toggle: bool, text: String) -> Self
+	fn new(loc: Point2<f32>, size: Vector2<f32>, is_toggle: bool, sprite: String) -> Self
 	{
 		Self {
 			loc: loc,
 			size: size,
-			text: text,
+			sprite: sprite,
 			on: false,
 			hover: false,
 			is_toggle: is_toggle,
@@ -120,25 +121,23 @@ impl Button
 
 	fn draw(&self, state: &game_state::GameState)
 	{
-		let color = if self.on
+		let variant = if self.on
 		{
-			Color::from_rgba_f(1.0, 1.0, 1.0, 1.0)
+			2
 		}
 		else if self.hover
 		{
-			Color::from_rgba_f(0.75, 0.75, 0.75, 1.0)
+			1
 		}
 		else
 		{
-			Color::from_rgba_f(0.5, 0.5, 0.5, 1.0)
+			0
 		};
-		state.core.draw_text(
-			&state.ui_font,
-			color,
-			self.loc.x,
-			self.loc.y - state.ui_font.get_line_height() as f32 / 2.,
-			FontAlign::Centre,
-			&self.text,
+		state.get_sprite(&self.sprite).unwrap().draw(
+			self.loc,
+			variant,
+			Color::from_rgb_f(1., 1., 1.),
+			state,
 		);
 	}
 
@@ -212,6 +211,7 @@ impl Cell
 			][idx];
 			//let team = comps::Team::French;
 			//let team = comps::Team::English;
+			//let team = comps::Team::Pirate;
 
 			let idx = rand_distr::WeightedIndex::new([10., 5., 1.])
 				.unwrap()
@@ -298,6 +298,8 @@ impl HUD
 
 		let size = Vector2::new(m * 2., m);
 
+		let sprite_name = "data/repair.cfg".to_string();
+
 		for i in 0..4
 		{
 			let theta = -PI / 2. + i as f32 * PI / 2.;
@@ -313,20 +315,20 @@ impl HUD
 				Point2::new(lx + offt, ly),
 				size,
 				true,
-				"AAA".to_string(),
+				sprite_name.clone(),
 			));
 		}
 
 		y += m * 4.;
 
 		let h = m;
-		let x = x - m * 6.;
+		let x = x - m * 5.;
 
 		buttons.push(Button::new(
 			Point2::new(x, y),
 			size,
 			true,
-			"AAA".to_string(),
+			sprite_name.clone(),
 		));
 		y += h;
 		y += h;
@@ -334,14 +336,14 @@ impl HUD
 			Point2::new(x, y),
 			size,
 			true,
-			"AAA".to_string(),
+			sprite_name.clone(),
 		));
 		y += h;
 		buttons.push(Button::new(
 			Point2::new(x, y),
 			size,
 			true,
-			"AAA".to_string(),
+			sprite_name.clone(),
 		));
 
 		Self {
@@ -466,16 +468,16 @@ impl HUD
 			let target_dir = (mouse_ground_pos.zx() - slot_pos).normalize();
 			let min_dot = (arc / 2.).cos();
 
-			kind.draw(Point2::new(x + w / 2., y - 64. + w / 2.), state);
+			draw_item(x + w / 2., y + 64. + w / 2., &kind, state);
 			if slot_vec_dir.dot(&target_dir) > min_dot
 			{
 				state.prim.draw_filled_pieslice(
 					x + w / 2.,
 					y + w / 2.,
-					w / 2.,
+					w / 3.,
 					-slot_dir - arc / 2. + PI * 3. / 2.,
 					*arc,
-					Color::from_rgba_f(f, f, f, f),
+					frac_to_color(f),
 				);
 			}
 			else
@@ -483,10 +485,10 @@ impl HUD
 				state.prim.draw_pieslice(
 					x + w / 2.,
 					y + w / 2.,
-					w / 2.,
+					w / 3.,
 					-slot_dir - arc / 2. + PI * 3. / 2.,
 					*arc,
-					Color::from_rgba_f(f, f, f, f),
+					frac_to_color(f),
 					3.,
 				);
 			}
@@ -541,7 +543,7 @@ impl HUD
 			dw / 2.0,
 			16.,
 			FontAlign::Centre,
-			&format!("Money: ${}", map.money),
+			&format!("Money: £{}", map.money),
 		);
 
 		let lh = state.ui_font.get_line_height() as f32;
@@ -948,19 +950,19 @@ impl EquipmentScreen
 				if dock_state.hull > 0. && dock_state.team != player_state.team
 				{
 					self.switch_ships = Some(Button::new(
-						Point2::new(state.display_width / 3. - 64., 64.),
-						Vector2::new(64., 64.),
+						Point2::new(state.display_width / 3. - 64., 32.),
+						Vector2::new(64., 32.),
 						false,
-						"Switch".into(),
+						"data/switch.cfg".into(),
 					));
 				}
 				if dock_state.team == player_state.team
 				{
 					self.recruit = Some(Button::new(
-						Point2::new(state.display_width / 3. - 64., 64.),
-						Vector2::new(64., 64.),
+						Point2::new(state.display_width / 3. - 64., 32.),
+						Vector2::new(64., 32.),
 						false,
-						format!("Recruit ${}", CREW_COST),
+						"data/recruit.cfg".into(),
 					));
 				}
 			}
@@ -1255,6 +1257,8 @@ impl EquipmentScreen
 
 	fn draw(&self, map: &Map, state: &game_state::GameState)
 	{
+		let m = state.m;
+		let lh = state.ui_font.get_line_height() as f32;
 		if map.dock_entity.is_some()
 		{
 			state.prim.draw_filled_rectangle(
@@ -1341,13 +1345,13 @@ impl EquipmentScreen
 				state.prim.draw_filled_rectangle(
 					pos.x,
 					pos.y,
-					pos.x + 256.,
-					pos.y + 128.,
+					pos.x + m * 8.,
+					pos.y + m * 8.,
 					Color::from_rgba_f(0., 0., 0., 0.75),
 				);
 
-				let x = pos.x + 16.;
-				let mut y = pos.y + 16.;
+				let x = pos.x + m;
+				let mut y = pos.y + m;
 
 				let price_desc = if do_trade
 				{
@@ -1372,7 +1376,7 @@ impl EquipmentScreen
 						FontAlign::Left,
 						line,
 					);
-					y += 16.;
+					y += lh;
 				}
 			}
 
@@ -1385,10 +1389,26 @@ impl EquipmentScreen
 		if let Some(button) = self.switch_ships.as_ref()
 		{
 			button.draw(state);
+			state.core.draw_text(
+				&state.ui_font,
+				Color::from_rgb_f(1., 1., 1.),
+				button.loc.x - button.size.x,
+				button.loc.y - lh / 2.,
+				FontAlign::Right,
+				"Switch Ships",
+			);
 		}
 		if let Some(button) = self.recruit.as_ref()
 		{
 			button.draw(state);
+			state.core.draw_text(
+				&state.ui_font,
+				Color::from_rgb_f(1., 1., 1.),
+				button.loc.x - button.size.x,
+				button.loc.y - lh / 2.,
+				FontAlign::Right,
+				&format!("Recruit Crew £{}", CREW_COST),
+			);
 		}
 	}
 }
@@ -1500,7 +1520,7 @@ fn make_wisp(
 	pos: Point3<f32>, vel: Vector3<f32>, world: &mut hecs::World, state: &mut game_state::GameState,
 ) -> Result<hecs::Entity>
 {
-	let mesh = "data/sphere.glb";
+	let mesh = "data/wisp.glb";
 	game_state::cache_mesh(state, mesh)?;
 	let res = world.spawn((
 		comps::Position {
@@ -1595,13 +1615,13 @@ fn make_projectile(
 	world: &mut hecs::World, state: &mut game_state::GameState,
 ) -> Result<hecs::Entity>
 {
-	let mesh = "data/sphere.glb";
+	let mesh = "data/cannon_ball.glb";
 	game_state::cache_mesh(state, mesh)?;
 	let res = world.spawn((
 		comps::Position { pos: pos, dir: 0. },
 		comps::Velocity {
 			vel: 50. * dir,
-			dir_vel: 0.,
+			dir_vel: 5. * PI,
 		},
 		comps::Solid {
 			size: 0.5,
@@ -1625,6 +1645,13 @@ fn make_projectile(
 					},
 				},
 			],
+		},
+		comps::Lights {
+			lights: vec![comps::Light {
+				pos: Point3::origin(),
+				color: Color::from_rgb_f(1., 0.8, 0.2),
+				intensity: 2.,
+			}],
 		},
 	));
 	Ok(res)
@@ -1813,7 +1840,12 @@ impl Map
 		state.cache_bitmap("data/english_flag.png")?;
 		state.cache_bitmap("data/pirate_flag.png")?;
 		state.cache_bitmap("data/french_flag.png")?;
-		state.cache_sprite("data/cannon.cfg")?;
+		state.cache_sprite("data/cannon_normal.cfg")?;
+		state.cache_sprite("data/cannon_magic.cfg")?;
+		state.cache_sprite("data/cannon_rare.cfg")?;
+		state.cache_sprite("data/repair.cfg")?;
+		state.cache_sprite("data/switch.cfg")?;
+		state.cache_sprite("data/recruit.cfg")?;
 		game_state::cache_mesh(state, "data/sphere.glb")?;
 
 		Ok(Self {
@@ -2716,6 +2748,7 @@ impl Map
 		{
 			if target.waypoints.is_empty()
 			{
+				vel.vel = Vector3::zeros();
 				vel.dir_vel = 0.;
 				continue;
 			}
@@ -3028,7 +3061,8 @@ impl Map
 
 		state.g_buffer.as_ref().unwrap().bind();
 		unsafe {
-			gl::Disable(gl::CULL_FACE);
+			gl::Enable(gl::CULL_FACE);
+			gl::CullFace(gl::BACK);
 		}
 		state
 			.core
@@ -3044,14 +3078,9 @@ impl Map
 		let br = utils::get_ground_from_screen(1.0, -1.0, project, camera) + shift;
 		let vtxs = [
 			mesh::WaterVertex {
-				x: tl.x,
-				y: tl.y,
-				z: tl.z,
-			},
-			mesh::WaterVertex {
-				x: tr.x,
-				y: tr.y,
-				z: tr.z,
+				x: bl.x,
+				y: bl.y,
+				z: bl.z,
 			},
 			mesh::WaterVertex {
 				x: br.x,
@@ -3059,9 +3088,14 @@ impl Map
 				z: br.z,
 			},
 			mesh::WaterVertex {
-				x: bl.x,
-				y: bl.y,
-				z: bl.z,
+				x: tr.x,
+				y: tr.y,
+				z: tr.z,
+			},
+			mesh::WaterVertex {
+				x: tl.x,
+				y: tl.y,
+				z: tl.z,
 			},
 		];
 		state
@@ -3115,9 +3149,12 @@ impl Map
 				.set_shader_transform("model_matrix", &utils::mat4_to_transform(shift))
 				.ok();
 
-			let flag_mapper = |material_name: &str, texture_name: &str| -> Option<&Bitmap> {
-				if material_name == "flag_material"
+			let flag_mapper = |material: &mesh::Material, texture_name: &str| -> Result<&Bitmap> {
+				if material.name == "flag_material"
 				{
+					unsafe {
+						gl::Disable(gl::CULL_FACE);
+					}
 					if let Ok(ship_state) = self.world.get::<&comps::ShipState>(id)
 					{
 						let texture_name = match ship_state.team
@@ -3136,6 +3173,9 @@ impl Map
 				}
 				else
 				{
+					unsafe {
+						gl::Enable(gl::CULL_FACE);
+					}
 					state.get_bitmap(texture_name)
 				}
 			};
@@ -3245,7 +3285,7 @@ impl Map
 					camera.to_homogeneous() * transform.to_homogeneous(),
 				));
 
-				if let Some(mesh) = state.get_mesh("data/sphere.glb")
+				if let Ok(mesh) = state.get_mesh("data/sphere.glb")
 				{
 					mesh.draw(&state.core, &state.prim, |_, s| state.get_bitmap(s));
 				}

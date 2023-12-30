@@ -110,7 +110,7 @@ impl MultiMesh
 		Ok(Self { meshes: meshes })
 	}
 
-	pub fn draw<'l, T: Fn(&str, &str) -> Option<&'l Bitmap>>(
+	pub fn draw<'l, T: Fn(&Material, &str) -> Result<&'l Bitmap>>(
 		&self, core: &Core, prim: &PrimitivesAddon, bitmap_fn: T,
 	)
 	{
@@ -129,7 +129,7 @@ impl MultiMesh
 				&mesh.vtxs[..],
 				mesh.material
 					.as_ref()
-					.and_then(|m| bitmap_fn(&m.name, &m.desc.texture)),
+					.and_then(|m| Some(bitmap_fn(&m, &m.desc.texture).unwrap())),
 				&mesh.idxs[..],
 				0,
 				mesh.idxs.len() as u32,

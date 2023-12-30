@@ -2,6 +2,8 @@ use crate::error::{Error, Result};
 use allegro::*;
 use allegro_audio::*;
 use allegro_color::*;
+use allegro_font::*;
+use allegro_ttf::*;
 use nalgebra;
 use rand::prelude::*;
 use serde::de::DeserializeOwned;
@@ -143,6 +145,13 @@ pub fn save_config<T: Serialize>(file: &str, val: T) -> Result<()>
 	std::fs::write(file, format!("{}", element))
 		.map_err(|e| Error::new(format!("Couldn't write '{}'", file), Some(Box::new(e))))?;
 	Ok(())
+}
+
+pub fn load_ttf_font(ttf: &TtfAddon, file: &str, size: i32) -> Result<Font>
+{
+	Ok(ttf
+		.load_ttf_font(file, size, Flag::zero())
+		.map_err(|_| format!("Couldn't load {}", file))?)
 }
 
 pub fn load_bitmap(core: &Core, file: &str) -> Result<Bitmap>

@@ -179,6 +179,8 @@ pub struct GameState
 	pub buffer: Option<Bitmap>,
 	pub light_buffer: Option<Bitmap>,
 	pub g_buffer: Option<deferred::GBuffer>,
+
+	pub m: f32,
 }
 
 impl GameState
@@ -201,8 +203,8 @@ impl GameState
 
 		let sfx = sfx::Sfx::new(options.sfx_volume, options.music_volume, &core)?;
 
-		let ui_font =
-			Font::new_builtin(&font).map_err(|_| "Could't create builtin font.".to_string())?;
+		let ui_font = utils::load_ttf_font(&ttf, "data/MavenPro-Bold.ttf", 24)?;
+		let m = ui_font.get_line_height() as f32;
 
 		let controls = controls::ControlsHandler::new(options.controls.clone());
 		Ok(Self {
@@ -235,6 +237,7 @@ impl GameState
 			buffer: None,
 			light_buffer: None,
 			g_buffer: None,
+			m: m,
 		})
 	}
 

@@ -15,6 +15,7 @@ pub enum Action
 	ZoomOut,
 	ZoomIn,
 	Board,
+	Target,
 }
 
 impl Action
@@ -32,6 +33,7 @@ impl Action
 			Action::ZoomOut => "ZoomOut",
 			Action::ZoomIn => "ZoomIn",
 			Action::Board => "Board",
+			Action::Target => "Target",
 		}
 	}
 }
@@ -487,7 +489,10 @@ impl Controls
 			Action::Queue,
 			[Some(Input::Keyboard(allegro::KeyCode::LShift)), None],
 		);
-		action_to_inputs.insert(Action::Action1, [Some(Input::MouseButton(1)), None]);
+		action_to_inputs.insert(
+			Action::Action1,
+			[Some(Input::Keyboard(allegro::KeyCode::Q)), None],
+		);
 		action_to_inputs.insert(
 			Action::Inventory,
 			[Some(Input::Keyboard(allegro::KeyCode::I)), None],
@@ -500,8 +505,9 @@ impl Controls
 		action_to_inputs.insert(Action::ZoomOut, [Some(Input::MouseZNeg), None]);
 		action_to_inputs.insert(
 			Action::Board,
-			[Some(Input::Keyboard(allegro::KeyCode::B)), None],
+			[Some(Input::Keyboard(allegro::KeyCode::Space)), None],
 		);
+		action_to_inputs.insert(Action::Target, [Some(Input::MouseButton(1)), None]);
 
 		Self {
 			action_to_inputs: action_to_inputs,

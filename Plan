@@ -1,6 +1,23 @@
 TODO:
     - Control groups (on inventory screen, shown on both screens)
     - Economy.
+    - Enemy attack order on spawn
+    - Special boss event + win condition
+
+To draw:
+
+    - Medium Ship - Done
+    - Big Ship - Done
+    - Boss Ship - Done
+    - Gun - Done
+    - Officer
+    - Cotton ball
+    - Tobacco leaf
+    - Crate (goods)
+    - Repair Symbol
+
+Extra:
+    - For the target indicator, do an offscreen version of it.
 
 Done:
     - Item destruction.

@@ -1,8 +1,9 @@
-use crate::sprite;
+use crate::{game_state, sprite};
 use allegro::*;
 use na::{Point2, Point3, Vector3};
 use nalgebra as na;
 use rand::prelude::*;
+use serde_derive::{Deserialize, Serialize};
 
 use std::f32::consts::PI;
 
@@ -92,6 +93,7 @@ pub enum AIState
 pub struct AI
 {
 	pub state: AIState,
+	pub name: String,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -188,6 +190,22 @@ impl ItemKind
 			}
 		}
 	}
+
+	pub fn draw(&self, pos: Point2<f32>, state: &game_state::GameState)
+	{
+		match self
+		{
+			ItemKind::Weapon(_) =>
+			{
+				state.get_sprite("data/cannon.cfg").unwrap().draw(
+					pos,
+					0,
+					Color::from_rgb_f(1., 1., 1.),
+					state,
+				);
+			}
+		}
+	}
 }
 
 #[derive(Clone, Debug)]
@@ -237,11 +255,11 @@ impl Equipment
 	{
 		for i in 0..inventory_size
 		{
-			let x = (i as i32 % 4) as f32 - 1.5;
-			let y = (i as i32 / 4) as f32 + 2.;
+			let x = (i as i32 % 8) as f32 - 3.5;
+			let y = (i as i32 / 8) as f32 + 4.;
 			slots.push(ItemSlot {
 				item: None,
-				pos: Point2::new(-3. * y, -3. * x),
+				pos: Point2::new(-2. * y, -2. * x),
 				dir: None,
 				is_inventory: true,
 			})
@@ -290,7 +308,7 @@ pub struct OnContactEffect
 	pub effects: Vec<ContactEffect>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ShipStats
 {
 	pub hull: f32,
@@ -430,6 +448,7 @@ pub enum Team
 {
 	English,
 	French,
+	Pirate,
 	Neutral,
 }
 
@@ -489,4 +508,341 @@ pub struct Light
 pub struct Lights
 {
 	pub lights: Vec<Light>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Sinking;
+
+pub fn generate_captain_name(team: Team, rng: &mut impl Rng) -> String
+{
+	match team
+	{
+		Team::English => [
+			"Aldington",
+			"Aldridge",
+			"Alford",
+			"Allbrook",
+			"Allday",
+			"Allerton",
+			"Allingham",
+			"Allington",
+			"Allnutt",
+			"Allport",
+			"Allsebrook",
+			"Alston",
+			"Altham",
+			"Alton",
+			"Anderton",
+			"Ansley",
+			"Anstey",
+			"Appleton",
+			"Appley",
+			"Bassford",
+			"Batley",
+			"Baverstock",
+			"Baxenden",
+			"Bayford",
+			"Beanland",
+			"Beardall",
+			"Beardwood",
+			"Becker",
+			"Beckford",
+			"Beckwith",
+			"Nettleton",
+			"Newnham",
+			"Nibley",
+			"Norbury",
+			"Norgrove",
+			"Norland",
+			"Norrington",
+			"Norsworthy",
+			"Northall",
+			"Thelwall",
+			"Thistleton",
+			"Thorington",
+			"Thorley",
+			"Thornbury",
+			"Thorndike",
+			"Thornley",
+			"Thornton",
+			"Thorpe",
+			"Threapland",
+			"Throckmorton",
+			"Whiteway",
+			"Whitfield",
+			"Whitford",
+			"Whitgift",
+			"Whitley",
+			"Whitstone",
+			"Whitter",
+			"Whittingham",
+			"Whittlesey",
+			"Whittock",
+			"Whitton",
+			"Whitwell",
+			"Whitworth",
+		]
+		.choose(rng)
+		.unwrap()
+		.to_string(),
+		Team::French => [
+			"Labille",
+			"Labouchère",
+			"Lacamp",
+			"LaClaire",
+			"Lacresse",
+			"Lafaille",
+			"Lafitte",
+			"Lafontaine",
+			"Laforest",
+			"Lafourcade",
+			"Lalonde",
+			"Lambert",
+			"Lamirault",
+			"Lancret",
+			"Lanvin",
+			"Lataste",
+			"Latendresse",
+			"Lauzon",
+			"Le Fur",
+			"Le Goff",
+			"Le Lievre",
+			"Le Maçon",
+			"Le Patourel",
+			"Le Tissier",
+			"Leale",
+			"Pételle",
+			"Peyron",
+			"Picart",
+			"Pichette",
+			"Pickavance",
+			"Pienaar",
+			"Pierre-Paul",
+			"Piffard",
+			"Pineault",
+			"Pinochet",
+			"Pittet",
+			"Plessis",
+			"Poilievre",
+			"Poiret",
+			"Polnareff",
+			"Valin",
+			"Vanhoutte",
+			"Vareilles",
+			"Vatin",
+			"Vaugrenard",
+			"Vaurie",
+			"Vautrin",
+			"Venteau",
+			"Vergès",
+			"Vernet",
+			"Verzelen",
+			"Veuillot",
+			"Veyrat",
+			"Mallarmé",
+			"Marais",
+			"Marchive",
+			"Mascaron",
+			"Mathiasin",
+			"Maudet",
+			"Mauger",
+			"Mazière",
+			"Mendy",
+			"Bataillon",
+			"Baudrier",
+			"Baudu",
+			"Bazin",
+			"Beaudreau",
+			"Bédard",
+			"Béliveau",
+			"Bellecourt",
+			"Belshaw",
+			"Benassaya",
+			"Benezet",
+			"Bertrand",
+			"Bethancourt",
+			"Beves",
+			"Fertet",
+			"Feydeau",
+			"Fillon",
+			"Firmin",
+			"Fletcher",
+			"Florent",
+			"Foster",
+			"Fouché",
+			"Fourcade",
+			"Fourie",
+			"Fourier",
+			"Fovargue",
+		]
+		.choose(rng)
+		.unwrap()
+		.to_string(),
+		Team::Pirate => [
+			"Beugel",
+			"Beukers",
+			"Beumer",
+			"Biemans",
+			"Biersteker",
+			"Biesheuvel",
+			"Bijl",
+			"Bijlsma",
+			"Bikker",
+			"Bisschop",
+			"Blaauw",
+			"Blanke",
+			"Bleecker",
+			"Bleekemolen",
+			"Bleeker",
+			"Blind",
+			"Block",
+			"Bloem",
+			"Bloembergen",
+			"Bloemen",
+			"Blokland",
+			"Blom",
+			"Boekbinder",
+			"Boeken",
+			"Boekhorst",
+			"Boer",
+			"Boeve",
+			"Borstlap",
+			"Bos",
+			"Bosch",
+			"Boschman",
+			"Bosman",
+			"Bosmans",
+			"Bosz",
+			"Bot",
+			"Bouman",
+			"De Wilde",
+			"De Winter",
+			"De Wit",
+			"De Witt",
+			"De Witte",
+			"De Wolf",
+			"De Zeeuw",
+			"De Zwart",
+			"Declercq",
+			"Deconinck",
+			"Deelstra",
+			"Dejagere",
+			"Dekker",
+			"Dekkers",
+			"Demol",
+			"Den Boer",
+			"Den Dekker",
+			"Den Hartog",
+			"Glas",
+			"Goes",
+			"Goethals",
+			"Goff",
+			"Goll",
+			"Van Gool",
+			"Goos",
+			"Goossen",
+			"Goossens",
+			"Goovaerts",
+			"Goris",
+			"Gorter",
+			"Graaf",
+			"Graafland",
+			"Hendrikse",
+			"Hendriksen",
+			"Hendrikx",
+			"Hendrix",
+			"Hennies",
+			"Hennis",
+			"Herkenhoff",
+			"Hermans",
+			"Hermsen",
+			"Herrema",
+			"Hert",
+			"Hertog",
+			"Heuvelmans",
+			"Heybroek",
+			"Nieman",
+			"Nienhuis",
+			"Nienhuys",
+			"Nieuwenhuis",
+			"Nieuwenhuizen",
+			"Nieuwenhuyzen",
+			"Nieuwenkamp",
+			"Nieuwland",
+			"Nijboer",
+			"Nijdam",
+			"Nijenhuis",
+			"Nijhof",
+			"Nijhuis",
+			"Nijland",
+			"Nijman",
+			"Nijpels",
+			"Maertens",
+			"Maes",
+			"Maessen",
+			"Magel",
+			"Magerman",
+			"Maij",
+			"Majoor",
+			"Makkink",
+			"Mandel",
+			"Manders",
+			"Mangels",
+			"Mansveld",
+			"Scholte",
+			"Scholten",
+			"Schoonmaker",
+			"Schout",
+			"Schouten",
+			"Schreuder",
+			"Schreuders",
+			"Schreurs",
+			"Schrijver",
+			"Schuller",
+			"Schulting",
+			"Schure",
+			"Schut",
+			"Schutte",
+			"Schuurman",
+			"Van de Kamp",
+			"Van de Sande",
+			"Van de Stadt",
+			"Van de Velde",
+			"Van de Ven",
+			"Van de Vendel",
+			"Van de Vijver",
+			"Van de Walle",
+			"Van de Water",
+			"Van de Werve",
+			"Van de Wetering",
+			"Van de Wiele",
+			"Van den Abeele",
+			"Van den Akker",
+			"Van den Berg",
+			"Van den Bergh",
+			"Van Den Berghe",
+			"Van den Boogaard",
+			"Van den Bos",
+			"Van den Bosch",
+			"Van Paassen",
+			"Van Pelt",
+			"Van Poortvliet",
+			"Van Poppel",
+			"Van Praag",
+			"Van Putten",
+			"Van Raalte",
+			"Van Reenen",
+			"Van Riel",
+			"Van Rijn",
+			"Van Rijswijk",
+			"Van Roekel",
+			"Van Rooy",
+			"Van Rooyen",
+			"Van Rossum",
+		]
+		.choose(rng)
+		.unwrap()
+		.to_string(),
+		Team::Neutral => unreachable!(),
+	}
 }

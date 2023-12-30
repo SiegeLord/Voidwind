@@ -95,6 +95,7 @@ fn real_main() -> Result<()>
 	let mut old_fullscreen = state.options.fullscreen;
 
 	let mut frame_times = circular_buffer::CircularBuffer::<16, _>::new();
+	let mut logic_times = circular_buffer::CircularBuffer::<16, _>::new();
 	//state.core.grab_mouse(&display).ok();
 	//display.show_cursor(false).ok();
 
@@ -146,6 +147,12 @@ fn real_main() -> Result<()>
 					sum += v;
 				}
 				println!("FPS: {:.2}", 1. / (sum / frame_times.len() as f64));
+				let mut sum = 0.;
+				for v in &logic_times
+				{
+					sum += v;
+				}
+				println!("LPS: {:.2}", 1. / (sum / logic_times.len() as f64));
 			}
 			logics_without_draw = 0;
 			draw = false;
@@ -186,6 +193,7 @@ fn real_main() -> Result<()>
 					continue;
 				}
 
+				let frame_start = state.core.get_time();
 				if next_screen.is_none()
 				{
 					next_screen = match &mut cur_screen
@@ -194,6 +202,7 @@ fn real_main() -> Result<()>
 						_ => None,
 					}
 				}
+				logic_times.push_back(state.core.get_time() - frame_start);
 
 				if old_fullscreen != state.options.fullscreen
 				{

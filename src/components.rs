@@ -728,10 +728,10 @@ fn default_weapon_stats(level: i32) -> WeaponStats
 #[derive(Clone, Debug)]
 pub struct Officer
 {
-	name: String,
-	level: i32,
-	prefixes: Vec<OfficerPrefix>,
-	suffixes: Vec<OfficerSuffix>,
+	pub name: String,
+	pub level: i32,
+	pub prefixes: Vec<OfficerPrefix>,
+	pub suffixes: Vec<OfficerSuffix>,
 }
 
 fn mod_string(name: &str, base: f32, new: f32) -> Option<String>
@@ -1676,9 +1676,6 @@ pub struct Lights
 {
 	pub lights: Vec<Light>,
 }
-
-#[derive(Clone, Debug)]
-pub struct Sinking;
 
 pub fn generate_weapon_name(rng: &mut impl Rng) -> String
 {

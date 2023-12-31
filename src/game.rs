@@ -26,6 +26,18 @@ const SLOT_WIDTH: f32 = 64.;
 const CREW_COST: i32 = 20;
 const MESSAGE_DURATION: f32 = 5.;
 const EQUIPMENT_FRAC: f32 = 0.6;
+const ECONOMY_INTERVAL: f64 = 30.;
+
+#[derive(Clone, Debug)]
+#[repr(usize)]
+pub enum Price
+{
+	Weapon,
+	Goods,
+	Cotton,
+	Tobacco,
+	Officer,
+}
 
 struct Timer
 {
@@ -843,6 +855,8 @@ struct EquipmentScreen
 
 	switch_ships: Option<Button>,
 	recruit: Option<Button>,
+
+	grab_attempted: bool,
 }
 
 impl EquipmentScreen
@@ -858,6 +872,7 @@ impl EquipmentScreen
 			ctrl_down: false,
 			switch_ships: None,
 			recruit: None,
+			grab_attempted: false,
 		}
 	}
 
@@ -907,6 +922,7 @@ impl EquipmentScreen
 			}
 			Event::MouseButtonUp { button: 1, .. } =>
 			{
+				self.grab_attempted = false;
 				self.mouse_button_down = false;
 			}
 			Event::KeyDown {
@@ -1056,8 +1072,19 @@ impl EquipmentScreen
 									if item.price > map.money
 									{
 										start_grab = false;
+										if !self.grab_attempted
+										{
+											map.messages.push((
+												"Not enough money!".to_string(),
+												state.time(),
+											));
+										}
+										self.grab_attempted = true;
 									}
-									map.money -= item.price;
+									else
+									{
+										map.money -= item.price;
+									}
 								}
 							}
 							if start_grab
@@ -1084,27 +1111,49 @@ impl EquipmentScreen
 							if is_weapon && !slot.weapons_allowed
 							{
 								old_item = self.dragged_item.take();
-								if do_trade
-								{
-									map.money += old_item.as_ref().unwrap().2.price;
-								}
 							}
 							else
 							{
-								// Drop item.
-								// If dropping into trade partner's window, grab the money.
-								let (source_i, source_equipment_idx, mut item) =
-									self.dragged_item.take().unwrap();
-								if equipment_idx == 0 && do_trade
+								let mut do_transaction = true;
+								if let Some(item) = slot.item.as_ref()
 								{
-									map.money += item.price;
+									if equipment_idx == 0 && do_trade
+									{
+										if map.money >= item.price
+										{
+											map.money -= item.price;
+										}
+										else
+										{
+											do_transaction = false;
+											map.messages.push((
+												"Not enough money!".to_string(),
+												state.time(),
+											));
+										}
+									}
 								}
-								old_item = slot
-									.item
-									.take()
-									.map(|item| (source_i, source_equipment_idx, item));
-								item.reset_cooldowns();
-								slot.item = Some(item);
+								if do_transaction
+								{
+									// Drop item.
+									// If dropping into trade partner's window, grab the money.
+									let (source_i, source_equipment_idx, mut item) =
+										self.dragged_item.take().unwrap();
+									if equipment_idx == 0 && do_trade
+									{
+										map.money += item.price;
+									}
+									old_item = slot
+										.item
+										.take()
+										.map(|item| (source_i, source_equipment_idx, item));
+									item.reset_cooldowns();
+									slot.item = Some(item);
+								}
+								else
+								{
+									old_item = self.dragged_item.take();
+								}
 							}
 						}
 						if !self.mouse_button_down
@@ -1116,10 +1165,6 @@ impl EquipmentScreen
 				if !self.mouse_button_down && self.dragged_item.is_some()
 				{
 					old_item = self.dragged_item.take();
-					if do_trade
-					{
-						map.money += old_item.as_ref().unwrap().2.price;
-					}
 				}
 				if let Some((i, equipment_idx, item)) = old_item
 				{
@@ -1129,6 +1174,11 @@ impl EquipmentScreen
 					}
 					else if let Some(dock_equipment) = dock_equipment.as_mut()
 					{
+						if do_trade
+						{
+							map.money += item.price;
+						}
+
 						dock_equipment.slots[i].item = Some(item);
 					}
 				}
@@ -1139,11 +1189,7 @@ impl EquipmentScreen
 					{
 						if *equipment_idx == 1
 						{
-							// This is in lieu of the logic for dropping.
-							if do_trade
-							{
-								map.money += item.price;
-							}
+							let item_price = item.price;
 							if let Some(dock_equipment) = dock_equipment.as_mut()
 							{
 								for slot in &mut dock_equipment.slots
@@ -1155,6 +1201,11 @@ impl EquipmentScreen
 										break;
 									}
 								}
+							}
+							// This is in lieu of the logic for dropping.
+							if do_trade && moved
+							{
+								map.money += item_price;
 							}
 						}
 						else
@@ -1211,8 +1262,22 @@ impl EquipmentScreen
 						map.world.get::<&comps::ShipStats>(map.player),
 					)
 					{
-						if dock_state.crew > dock_stats.crew * 2 / 3
-							&& map.money >= CREW_COST && player_state.crew < player_stats.crew
+						if dock_state.crew < dock_stats.crew * 2 / 3
+						{
+							map.messages
+								.push(("Not enough crew to recruit!".to_string(), state.time()));
+						}
+						else if map.money < dock_state.level * CREW_COST
+						{
+							map.messages
+								.push(("Not enough money!".to_string(), state.time()));
+						}
+						else if player_state.crew >= player_stats.crew
+						{
+							map.messages
+								.push(("No room for more crew!".to_string(), state.time()));
+						}
+						else
 						{
 							let player_count = (player_state.crew + player_state.wounded) as f32;
 							let new_experience =
@@ -1221,8 +1286,8 @@ impl EquipmentScreen
 							player_state.crew += 1;
 							player_state.experience = new_experience;
 							player_state.compute_level();
-							dbg!(player_state.experience);
-							map.money -= CREW_COST;
+							//dbg!(player_state.experience);
+							map.money -= dock_state.level * CREW_COST;
 						}
 					}
 				}
@@ -1320,6 +1385,11 @@ impl EquipmentScreen
 		);
 		let do_trade = self.do_trade(map);
 		let mouse_pos = Point2::new(state.mouse_pos.x as f32, state.mouse_pos.y as f32);
+		let crew_level = map
+			.dock_entity
+			.and_then(|e| map.world.get::<&comps::ShipState>(e).ok())
+			.map(|ss| ss.level)
+			.unwrap_or(1);
 
 		let mut query = map.world.query::<&comps::Equipment>();
 		let view = query.view();
@@ -1455,7 +1525,7 @@ impl EquipmentScreen
 				button.loc.x - button.size.x,
 				button.loc.y - lh / 2.,
 				FontAlign::Right,
-				&format!("Recruit Crew £{}", CREW_COST),
+				&format!("Recruit Crew £{}", crew_level * CREW_COST),
 			);
 		}
 	}
@@ -1635,29 +1705,6 @@ fn make_selection(
 	Ok(res)
 }
 
-fn make_swords(
-	pos: Point3<f32>, world: &mut hecs::World, state: &mut game_state::GameState,
-) -> Result<hecs::Entity>
-{
-	let mesh = "data/swords.glb";
-	game_state::cache_mesh(state, mesh)?;
-	let res = world.spawn((
-		comps::Position {
-			pos: pos + Vector3::new(0., 5., 0.),
-			dir: 0.,
-		},
-		comps::Velocity {
-			vel: Vector3::new(0., 10., 0.),
-			dir_vel: 0.,
-		},
-		comps::Mesh { mesh: mesh.into() },
-		comps::TimeToDie {
-			time_to_die: state.time() + 0.5,
-		},
-	));
-	Ok(res)
-}
-
 fn make_projectile(
 	pos: Point3<f32>, dir: Vector3<f32>, parent: hecs::Entity, team: comps::Team,
 	weapon_stats: &comps::WeaponStats, world: &mut hecs::World, state: &mut game_state::GameState,
@@ -1813,7 +1860,10 @@ fn make_ship(
 	}
 
 	let res = world.spawn((
-		comps::Position { pos: pos, dir: 0. },
+		comps::Position {
+			pos: pos,
+			dir: PI / 2.,
+		},
 		comps::Velocity {
 			vel: Vector3::zeros(),
 			dir_vel: 0.,
@@ -1847,6 +1897,29 @@ struct CollisionEntry
 	pos: Point3<f32>,
 }
 
+fn update_economy(economy: &mut [f32; 5], rng: &mut impl Rng) -> (usize, bool)
+{
+	let idx = rng.gen_range(0..economy.len());
+
+	let dir = *([-1., 1.].choose(rng).unwrap());
+	economy[idx] *= (1.25_f32).powf(dir);
+	let mut cur_sum = 0.;
+	for e in economy.iter()
+	{
+		cur_sum += *e;
+	}
+	for e in economy.iter_mut()
+	{
+		*e *= 1000. / cur_sum;
+	}
+	(idx, dir > 0.)
+}
+
+fn round_price(price: f32) -> i32
+{
+	((price / 10.) as i32) * 10
+}
+
 struct Map
 {
 	world: hecs::World,
@@ -1865,6 +1938,8 @@ struct Map
 	messages: Vec<(String, f64)>,
 	level: i32,
 	global_offset: Vector2<i32>,
+	economy: [f32; 5],
+	time_to_economy: f64,
 }
 
 impl Map
@@ -1876,7 +1951,7 @@ impl Map
 
 		let player = make_ship(
 			Point3::new(30., 0., 0.),
-			"data/big_ship.cfg",
+			"data/boss_ship.cfg",
 			comps::Team::English,
 			1,
 			&mut rng,
@@ -1884,7 +1959,7 @@ impl Map
 			state,
 		)?;
 		{
-			let mut ship_state = world.get::<&mut comps::ShipState>(player).unwrap();
+			//let mut ship_state = world.get::<&mut comps::ShipState>(player).unwrap();
 			//ship_state.hull = 10.;
 			//ship_state.crew = 1;
 			//ship_state.wounded = 0;
@@ -1927,6 +2002,14 @@ impl Map
 		state.sfx.cache_sample("data/cannon_shot.ogg")?;
 		game_state::cache_mesh(state, "data/sphere.glb")?;
 
+		let mut economy = [0.; 5];
+
+		for e in &mut economy
+		{
+			*e = rng.gen_range(100.0..200.0);
+		}
+		update_economy(&mut economy, &mut rng);
+
 		Ok(Self {
 			world: world,
 			rng: rng,
@@ -1940,10 +2023,12 @@ impl Map
 			dock_entity: None,
 			cells: cells,
 			zoom: 1.,
-			money: 1000,
+			money: 500,
 			messages: vec![],
 			level: 1,
 			global_offset: Vector2::new(0, 0),
+			economy: economy,
+			time_to_economy: state.time() + ECONOMY_INTERVAL,
 		})
 	}
 
@@ -1986,6 +2071,40 @@ impl Map
 		// Messages
 		self.messages
 			.retain(|(_, t)| state.time() - t < MESSAGE_DURATION as f64);
+
+		if state.time() > self.time_to_economy
+		{
+			let (idx, increased) = update_economy(&mut self.economy, &mut self.rng);
+
+			let name = match idx
+			{
+				0 => "Weapons",
+				1 => "Goods",
+				2 => "Cotton",
+				3 => "Tobacco",
+				4 => "Officers",
+				_ => unreachable!(),
+			};
+
+			let message = if increased
+			{
+				format!(
+					"{name} markets are going up! Now at £{}",
+					round_price(self.economy[idx])
+				)
+			}
+			else
+			{
+				format!(
+					"{name} markets are falling down! Now at £{}",
+					round_price(self.economy[idx])
+				)
+			};
+
+			self.messages.push((message, state.time()));
+
+			self.time_to_economy = state.time() + ECONOMY_INTERVAL;
+		}
 
 		let mut timer = Timer::new("cell changes", state);
 		// Cell changes
@@ -2619,6 +2738,7 @@ impl Map
 			if let Some(target_entity) = self.target_entity
 			{
 				let mut move_to = None;
+				let mut do_trade = false;
 				if let (
 					Ok(player_pos),
 					Ok(mut player_target),
@@ -2646,6 +2766,7 @@ impl Map
 						{
 							player_target.clear(|m| to_die.push(m));
 							self.dock_entity = Some(target_entity);
+							do_trade = ship_state.team.trade_with(&player_ship_state.team);
 						}
 						else
 						{
@@ -2667,6 +2788,63 @@ impl Map
 						pos: move_to,
 						marker: None,
 					});
+				}
+				if do_trade
+				{
+					for entity in [self.player, self.target_entity.unwrap()]
+					{
+						if let Ok(mut equipment) = self.world.get::<&mut comps::Equipment>(entity)
+						{
+							for slot in &mut equipment.slots
+							{
+								if let Some(item) = slot.item.as_mut()
+								{
+									match &mut item.kind
+									{
+										comps::ItemKind::Weapon(weapon) =>
+										{
+											item.price = round_price(
+												comps::level_effectiveness(weapon.level)
+													* (1 + weapon.prefixes.len()
+														+ weapon.suffixes.len()) as f32 * self.economy
+													[Price::Weapon as usize],
+											)
+										}
+										comps::ItemKind::Officer(officer) =>
+										{
+											item.price = round_price(
+												comps::level_effectiveness(officer.level)
+													* (1 + officer.prefixes.len()
+														+ officer.suffixes.len()) as f32 * self.economy
+													[Price::Officer as usize],
+											)
+										}
+										comps::ItemKind::Goods(level) =>
+										{
+											item.price = round_price(
+												comps::level_effectiveness(*level)
+													* self.economy[Price::Goods as usize],
+											)
+										}
+										comps::ItemKind::Tobacco(level) =>
+										{
+											item.price = round_price(
+												comps::level_effectiveness(*level)
+													* self.economy[Price::Tobacco as usize],
+											)
+										}
+										comps::ItemKind::Cotton(level) =>
+										{
+											item.price = round_price(
+												comps::level_effectiveness(*level)
+													* self.economy[Price::Cotton as usize],
+											)
+										}
+									}
+								}
+							}
+						}
+					}
 				}
 			}
 		}
@@ -2810,7 +2988,7 @@ impl Map
 		}
 
 		// Target movement.
-		for (_, (target, pos, vel, ship_state, stats)) in self
+		for (_, (target, pos, vel, ship_state, stats, equipment)) in self
 			.world
 			.query::<(
 				&mut comps::Target,
@@ -2818,6 +2996,7 @@ impl Map
 				&mut comps::Velocity,
 				&comps::ShipState,
 				&comps::ShipStats,
+				&comps::Equipment,
 			)>()
 			.iter()
 		{
@@ -2849,7 +3028,8 @@ impl Map
 			let forward = rot * Vector2::new(1., 0.);
 			let left = rot * Vector2::new(0., 1.);
 
-			let speed_factor = 0.1 + 0.9 * (ship_state.sails / stats.sails);
+			let speed_factor = 0.1
+				+ 0.9 * (ship_state.sails / stats.sails) * (1. + equipment.derived_stats().speed);
 
 			if diff.dot(&left) > 0.
 			{
@@ -3050,14 +3230,11 @@ impl Map
 		{
 			// Player has no AI.
 			self.world.remove_one::<comps::AI>(id).ok();
-			//self.world.insert(id, (comps::Sinking, comps::TimeToDie{time_to_die: state.time() + 5.}))?;
+			if let Ok(mut equipment) = self.world.get::<&mut comps::Equipment>(id)
+			{
+				equipment.want_attack = false;
+			}
 		}
-
-		// Sinking.
-		//for (_, (mut vel, _)) in self.world.query::<(&mut comps::Velocity, &comps::Sinking)>().iter()
-		//{
-		//    vel.vel.y = -10.;
-		//}
 
 		// Selection indicator
 		let mut target_pos = None;

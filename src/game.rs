@@ -269,16 +269,16 @@ impl Cell
 			//world.get::<&mut comps::ShipState>(ship).unwrap().hull = 1.;
 		}
 
-		for _ in 0..2
-		{
-			let dx = world_center.x + rng.gen_range(-w..w);
-			let dy = world_center.z + rng.gen_range(-w..w);
+		//for _ in 0..2
+		//{
+		//	let dx = world_center.x + rng.gen_range(-w..w);
+		//	let dy = world_center.z + rng.gen_range(-w..w);
 
-			let dir = rng.gen_range(0.0..PI * 2.0);
-			let vel = Vector3::new(dir.cos(), 0., dir.sin()) * 5.;
+		//	let dir = rng.gen_range(0.0..PI * 2.0);
+		//	let vel = Vector3::new(dir.cos(), 0., dir.sin()) * 5.;
 
-			make_wisp(Point3::new(dx, 0., dy), vel, world, state)?;
-		}
+		//	make_wisp(Point3::new(dx, 0., dy), vel, world, state)?;
+		//}
 
 		Ok(Self { center: center })
 	}
@@ -555,7 +555,7 @@ impl HUD
 					status_pos.x,
 					status_pos.y - m * 7.,
 					FontAlign::Centre,
-					&format!("Captain {}", ai.name),
+					&ai.name,
 				);
 			}
 
@@ -981,7 +981,9 @@ impl EquipmentScreen
 				map.world.get::<&comps::ShipState>(map.player),
 			)
 			{
-				if dock_state.hull > 0. && dock_state.team != player_state.team
+				if dock_state.hull > 0.
+					&& dock_state.team != player_state.team
+					&& !player_state.is_boss
 				{
 					self.switch_ships = Some(Button::new(
 						Point2::new(state.display_width / 3. - 64., 32.),
@@ -1254,6 +1256,17 @@ impl EquipmentScreen
 					dock_state.wounded = player_wounded;
 					dock_state.experience = player_experience;
 					dock_state.team = player_team;
+
+					if dock_state.is_boss
+					{
+						map.messages
+							.push(("You are now a slave to the Voidwind!".into(), state.time()));
+						map.messages.push((
+							"Now that you are on board, you can never leave...".into(),
+							state.time(),
+						));
+						dock_state.team = comps::Team::Pirate;
+					}
 				}
 				if do_recruit
 				{
@@ -1940,6 +1953,9 @@ struct Map
 	global_offset: Vector2<i32>,
 	economy: [f32; 5],
 	time_to_economy: f64,
+	boss: Option<hecs::Entity>,
+	spawn_boss: bool,
+	start_time: f64,
 }
 
 impl Map
@@ -1950,10 +1966,10 @@ impl Map
 		let mut world = hecs::World::new();
 
 		let player = make_ship(
-			Point3::new(30., 0., 0.),
-			"data/boss_ship.cfg",
+			Point3::new(0., 0., 0.),
+			"data/small_ship.cfg",
 			comps::Team::English,
-			1,
+			2,
 			&mut rng,
 			&mut world,
 			state,
@@ -2029,6 +2045,9 @@ impl Map
 			global_offset: Vector2::new(0, 0),
 			economy: economy,
 			time_to_economy: state.time() + ECONOMY_INTERVAL,
+			boss: None,
+			start_time: state.time(),
+			spawn_boss: true,
 		})
 	}
 
@@ -2078,11 +2097,11 @@ impl Map
 
 			let name = match idx
 			{
-				0 => "Weapons",
+				0 => "Weapon",
 				1 => "Goods",
 				2 => "Cotton",
 				3 => "Tobacco",
-				4 => "Officers",
+				4 => "Officer",
 				_ => unreachable!(),
 			};
 
@@ -2159,10 +2178,52 @@ impl Map
 
 		new_cell_centers.shuffle(&mut self.rng);
 
+		if self.spawn_boss && !new_cell_centers.is_empty()
+		{
+			if let Some(boss) = self.boss
+			{
+				if !self.world.contains(boss)
+				{
+					self.boss = None;
+				}
+			}
+			if self.boss.is_none()
+			{
+				println!("Spawned boss");
+				let boss = make_ship(
+					Cell::cell_to_world(new_cell_centers[0]),
+					//self.player_pos + Vector3::new(0., 0., 100.),
+					"data/boss_ship.cfg",
+					comps::Team::Pirate,
+					50,
+					&mut self.rng,
+					&mut self.world,
+					state,
+				)?;
+				self.world.insert(
+					boss,
+					(
+						comps::AI {
+							state: comps::AIState::Idle,
+							name: "Voidwind".into(),
+						},
+						comps::WispSpawner {
+							time_to_spawn: state.time(),
+						},
+					),
+				)?;
+				{
+					let mut ship_state = self.world.get::<&mut comps::ShipState>(boss).unwrap();
+					ship_state.is_boss = true;
+				}
+				self.boss = Some(boss);
+			}
+		}
+
 		for cell_center in new_cell_centers
 		{
 			let level = (-(cell_center.y + self.global_offset.y)).max(1);
-			println!("LEVEL {} {:?}", level, self.global_offset);
+			//println!("LEVEL {} {:?}", level, self.global_offset);
 			self.cells.push(Cell::new(
 				cell_center,
 				level,
@@ -2552,7 +2613,14 @@ impl Map
 						{
 							if let Ok(mut ai) = self.world.get::<&mut comps::AI>(other_id)
 							{
-								ai.state = comps::AIState::Pursuing(id);
+								if let Some(parent_id) = self
+									.world
+									.get::<&comps::Solid>(id)
+									.ok()
+									.and_then(|s| s.parent)
+								{
+									ai.state = comps::AIState::Pursuing(parent_id);
+								}
 							}
 
 							let destroy_prob = if destroyed
@@ -2595,6 +2663,14 @@ impl Map
 											{
 												slot.item = None;
 											}
+										}
+										if Some(other_id) == self.boss
+										{
+											self.messages
+												.push(("You are victorious!".into(), state.time()));
+											self.messages.push((format!("Voidwind has been defeated after {:.1} minutes!", (state.time() - self.start_time) / 60.), state.time()));
+											self.spawn_boss = false;
+											self.boss = None;
 										}
 									}
 								}
@@ -2981,6 +3057,25 @@ impl Map
 		}
 		timer.record(&state.core);
 
+		let mut spawn_wisps = vec![];
+		for (_, (pos, wisp_spawner)) in self
+			.world
+			.query::<(&comps::Position, &mut comps::WispSpawner)>()
+			.iter()
+		{
+			if state.time() > wisp_spawner.time_to_spawn
+			{
+				spawn_wisps.push(pos.pos);
+				wisp_spawner.time_to_spawn = state.time() + 4.;
+			}
+		}
+		for pos in spawn_wisps
+		{
+			let dir = self.rng.gen_range(0.0..PI * 2.0);
+			let vel = Vector3::new(dir.cos(), 0., dir.sin()) * 5.;
+			make_wisp(pos, vel, &mut self.world, state)?;
+		}
+
 		// Update player pos.
 		if let Ok(pos) = self.world.get::<&comps::Position>(self.player)
 		{
@@ -3031,14 +3126,19 @@ impl Map
 			let speed_factor = 0.1
 				+ 0.9 * (ship_state.sails / stats.sails) * (1. + equipment.derived_stats().speed);
 
-			if diff.dot(&left) > 0.
+			let dot = diff.dot(&left);
+			if dot > 0.05
 			{
 				vel.dir_vel =
 					speed_factor * stats.dir_speed * comps::level_effectiveness(ship_state.level);
 			}
-			else
+			else if dot < -0.05
 			{
 				vel.dir_vel = speed_factor * -stats.dir_speed;
+			}
+			else
+			{
+				vel.dir_vel = 0.;
 			}
 			vel.vel = speed_factor * stats.speed * Vector3::new(forward.y, 0., forward.x);
 		}
@@ -3074,7 +3174,7 @@ impl Map
 				}
 				comps::AIState::Idle =>
 				{
-					let entries = grid.query_rect(
+					let mut entries = grid.query_rect(
 						pos.pos.zx() - Vector2::new(sense_radius, sense_radius) - center.coords,
 						pos.pos.zx() + Vector2::new(sense_radius, sense_radius) - center.coords,
 						|other| {
@@ -3096,6 +3196,10 @@ impl Map
 							}
 						},
 					);
+					if ship_state.is_boss
+					{
+						entries.clear();
+					}
 					if let Some(entry) = entries.choose(&mut self.rng)
 					{
 						ai.state = comps::AIState::Pursuing(entry.inner.entity);
@@ -3217,7 +3321,8 @@ impl Map
 			{
 				if id == self.player
 				{
-					self.messages.push(("Defeated!".into(), state.time()));
+					self.messages
+						.push(("You've been defeated!".into(), state.time()));
 				}
 				target.clear(|m| to_die.push(m));
 				ship_state.team = comps::Team::Neutral;

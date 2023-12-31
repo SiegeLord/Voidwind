@@ -97,6 +97,12 @@ pub struct AI
 }
 
 #[derive(Copy, Clone, Debug)]
+pub struct WispSpawner
+{
+	pub time_to_spawn: f64,
+}
+
+#[derive(Copy, Clone, Debug)]
 pub enum CollideKind
 {
 	Big,
@@ -1076,11 +1082,11 @@ pub fn generate_weapon(level: i32, rng: &mut impl Rng) -> Item
 	{
 		Rarity::Rare
 	};
-	let max_tier = if level < 5
+	let max_tier = if level < 10
 	{
 		1
 	}
-	else if level < 10
+	else if level < 25
 	{
 		2
 	}
@@ -1481,7 +1487,7 @@ pub struct ShipState
 	pub armor: [f32; 4], // front, right, back, left
 
 	pub repair_boost: Vec<usize>,
-	pub time_to_board: f64,
+	pub is_boss: bool,
 }
 
 impl ShipState
@@ -1499,7 +1505,7 @@ impl ShipState
 			infirmary: stats.infirmary,
 			armor: stats.armor,
 			repair_boost: vec![],
-			time_to_board: 0.,
+			is_boss: false,
 		}
 	}
 
@@ -1750,7 +1756,7 @@ pub fn generate_weapon_name(rng: &mut impl Rng) -> String
 
 pub fn generate_captain_name(team: Team, rng: &mut impl Rng) -> String
 {
-	match team
+	let name = match team
 	{
 		Team::English => [
 			"Aldington",
@@ -2079,5 +2085,6 @@ pub fn generate_captain_name(team: Team, rng: &mut impl Rng) -> String
 		.unwrap()
 		.to_string(),
 		Team::Neutral => unreachable!(),
-	}
+	};
+	format!("Captain {name}")
 }

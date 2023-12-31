@@ -88,8 +88,8 @@ fn real_main() -> Result<()>
 	let mut quit = false;
 	let mut draw = true;
 
-	//let mut cur_screen = Screen::Menu(menu::Menu::new(&mut state)?);
-	let mut cur_screen = Screen::Game(game::Game::new(&mut state)?);
+	let mut cur_screen = Screen::Menu(menu::Menu::new(&mut state)?);
+	//let mut cur_screen = Screen::Game(game::Game::new(&mut state)?);
 
 	let mut logics_without_draw = 0;
 	let mut old_fullscreen = state.options.fullscreen;

@@ -1,8 +1,8 @@
 use crate::error::Result;
+use crate::utils::ColorExt;
 use crate::{
 	astar, components as comps, controls, game_state, mesh, spatial_grid, sprite, ui, utils,
 };
-use crate::utils::ColorExt;
 use allegro::*;
 use allegro_font::*;
 use allegro_primitives::*;
@@ -444,7 +444,7 @@ impl HUD
 
 	fn draw(&self, map: &Map, state: &game_state::GameState)
 	{
-        let ui_color = ui::ui_color();
+		let ui_color = ui::ui_color();
 		let (dw, dh) = (self.buffer_width, self.buffer_height);
 		let m = state.m;
 
@@ -981,7 +981,7 @@ impl EquipmentScreen
 		}
 	}
 
-	fn logic(&mut self, map: &mut Map, state: &game_state::GameState) -> bool
+	fn logic(&mut self, map: &mut Map, state: &mut game_state::GameState) -> bool
 	{
 		if map.dock_entity.is_some() && (self.switch_ships.is_none() && self.recruit.is_none())
 		{
@@ -1102,6 +1102,10 @@ impl EquipmentScreen
 							{
 								self.dragged_item =
 									slot.item.take().map(|item| (i, equipment_idx, item));
+                                if self.dragged_item.is_some()
+                                {
+                					state.sfx.play_sound("data/equipment.ogg").unwrap();
+                                }
 								if self.ctrl_down
 								{
 									fast_move = true;
@@ -1110,6 +1114,7 @@ impl EquipmentScreen
 						}
 						else if !self.mouse_button_down && self.dragged_item.is_some()
 						{
+          					state.sfx.play_sound("data/equipment.ogg").unwrap();
 							let is_weapon = if let Some(comps::ItemKind::Weapon(_)) =
 								self.dragged_item.as_ref().map(|(_, _, i)| &i.kind)
 							{
@@ -1388,7 +1393,7 @@ impl EquipmentScreen
 	{
 		let m = state.m;
 		let lh = state.ui_font.get_line_height() as f32;
-        let ui_color = ui::ui_color();
+		let ui_color = ui::ui_color();
 		if map.dock_entity.is_some()
 		{
 			state.prim.draw_filled_rectangle(
@@ -1565,7 +1570,7 @@ fn draw_ship_state(
 )
 {
 	let mut y = y;
-    let ui_color = ui::ui_color();
+	let ui_color = ui::ui_color();
 
 	let m = state.m;
 	let lh = state.ui_font.get_line_height() as f32;
@@ -1978,7 +1983,7 @@ impl Map
 
 		let player = make_ship(
 			Point3::new(0., 0., 0.),
-			"data/small_ship.cfg",
+			"data/boss_ship.cfg",
 			comps::Team::English,
 			2,
 			&mut rng,
@@ -2026,7 +2031,11 @@ impl Map
 		state.cache_sprite("data/repair.cfg")?;
 		state.cache_sprite("data/switch.cfg")?;
 		state.cache_sprite("data/recruit.cfg")?;
+		state.sfx.cache_sample("data/equipment.ogg")?;
 		state.sfx.cache_sample("data/cannon_shot.ogg")?;
+		state.sfx.cache_sample("data/screams.ogg")?;
+		state.sfx.cache_sample("data/sink.ogg")?;
+		state.sfx.cache_sample("data/explosion.ogg")?;
 		game_state::cache_mesh(state, "data/sphere.glb")?;
 
 		let mut economy = [0.; 5];
@@ -2052,10 +2061,10 @@ impl Map
 			zoom: 1.,
 			money: 500,
 			messages: vec![
-                ("Transcend the Sea".into(), state.time()),
-                ("Hunt the Voidwind".into(), state.time()),
-                ("Sail North".into(), state.time()),
-            ],
+				("Transcend the Sea".into(), state.time()),
+				("Hunt the Voidwind".into(), state.time()),
+				("Sail North".into(), state.time()),
+			],
 			level: 1,
 			global_offset: Vector2::new(0, 0),
 			economy: economy,
@@ -2612,15 +2621,44 @@ impl Map
 						)
 						{
 							let was_active = ship_state.is_active();
+							let was_sound = ship_state.is_structurally_sound();
+							let had_crew = ship_state.has_crew();
 							let report = ship_state.damage(
 								&damage,
 								(pos - other_pos).normalize(),
 								&mut self.rng,
 							);
+							if report.damaged
+							{
+								state.sfx.play_positional_sound(
+									"data/explosion.ogg",
+									pos.xz(),
+									self.player_pos.xz(),
+									0.5,
+								)?;
+							}
 							if report.damaged && was_active != ship_state.is_active()
 							{
 								disabled = Some((ship_state.level, ship_stats.exp_bonus));
 								destroyed = !ship_state.is_structurally_sound();
+							}
+							if report.damaged && had_crew != ship_state.has_crew()
+							{
+								state.sfx.play_positional_sound(
+									"data/screams.ogg",
+									pos.xz(),
+									self.player_pos.xz(),
+									0.5,
+								)?;
+							}
+							if report.damaged && was_sound != ship_state.is_structurally_sound()
+							{
+								state.sfx.play_positional_sound(
+									"data/sink.ogg",
+									pos.xz(),
+									self.player_pos.xz(),
+									0.5,
+								)?;
 							}
 							damage_report = Some(report);
 						}
@@ -3045,7 +3083,7 @@ impl Map
 										"data/cannon_shot.ogg",
 										spawn_pos.xz(),
 										self.player_pos.xz(),
-										0.05,
+										0.5,
 									)?;
 									weapon.readiness = 0.;
 								}

@@ -1102,10 +1102,10 @@ impl EquipmentScreen
 							{
 								self.dragged_item =
 									slot.item.take().map(|item| (i, equipment_idx, item));
-                                if self.dragged_item.is_some()
-                                {
-                					state.sfx.play_sound("data/equipment.ogg").unwrap();
-                                }
+								if self.dragged_item.is_some()
+								{
+									state.sfx.play_sound("data/equipment.ogg").unwrap();
+								}
 								if self.ctrl_down
 								{
 									fast_move = true;
@@ -1114,7 +1114,7 @@ impl EquipmentScreen
 						}
 						else if !self.mouse_button_down && self.dragged_item.is_some()
 						{
-          					state.sfx.play_sound("data/equipment.ogg").unwrap();
+							state.sfx.play_sound("data/equipment.ogg").unwrap();
 							let is_weapon = if let Some(comps::ItemKind::Weapon(_)) =
 								self.dragged_item.as_ref().map(|(_, _, i)| &i.kind)
 							{
@@ -1983,7 +1983,7 @@ impl Map
 
 		let player = make_ship(
 			Point3::new(0., 0., 0.),
-			"data/boss_ship.cfg",
+			"data/small_ship.cfg",
 			comps::Team::English,
 			2,
 			&mut rng,
@@ -2031,6 +2031,7 @@ impl Map
 		state.cache_sprite("data/repair.cfg")?;
 		state.cache_sprite("data/switch.cfg")?;
 		state.cache_sprite("data/recruit.cfg")?;
+		state.sfx.cache_sample("data/order.ogg")?;
 		state.sfx.cache_sample("data/equipment.ogg")?;
 		state.sfx.cache_sample("data/cannon_shot.ogg")?;
 		state.sfx.cache_sample("data/screams.ogg")?;
@@ -2219,7 +2220,7 @@ impl Map
 					//self.player_pos + Vector3::new(0., 0., 100.),
 					"data/boss_ship.cfg",
 					comps::Team::Pirate,
-					50,
+					30,
 					&mut self.rng,
 					&mut self.world,
 					state,
@@ -2813,6 +2814,7 @@ impl Map
 
 		if want_move && mouse_in_buffer && player_alive
 		{
+			state.sfx.play_sound("data/order.ogg").unwrap();
 			state.controls.clear_action_state(controls::Action::Move);
 			self.dock_entity = None;
 			let marker = make_target(mouse_ground_pos, &mut self.world, state)?;
@@ -2840,6 +2842,8 @@ impl Map
 		}
 		if want_stop && player_alive
 		{
+			state.sfx.play_sound("data/order.ogg").unwrap();
+			state.controls.clear_action_state(controls::Action::Stop);
 			if let Ok(mut target) = self.world.get::<&mut comps::Target>(self.player)
 			{
 				target.clear(|m| to_die.push(m));
@@ -2862,6 +2866,7 @@ impl Map
 		}
 		if want_dock && player_alive && self.target_entity != Some(self.player)
 		{
+			state.sfx.play_sound("data/order.ogg").unwrap();
 			state.controls.clear_action_state(controls::Action::Dock);
 			self.dock_entity = None;
 			if let Some(target_entity) = self.target_entity
@@ -3617,7 +3622,7 @@ impl Map
 			.set_blender(BlendOperation::Add, BlendMode::One, BlendMode::Zero);
 		state
 			.core
-			.clear_to_color(Color::from_rgba_f(0.1, 0.1, 0.1, 0.));
+			.clear_to_color(Color::from_rgba_f(0.05, 0.05, 0.05, 0.));
 		state
 			.core
 			.set_blender(BlendOperation::Add, BlendMode::One, BlendMode::One);

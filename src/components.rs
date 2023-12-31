@@ -1082,11 +1082,11 @@ pub fn generate_weapon(level: i32, rng: &mut impl Rng) -> Item
 	{
 		Rarity::Rare
 	};
-	let max_tier = if level < 10
+	let max_tier = if level < 5
 	{
 		1
 	}
-	else if level < 25
+	else if level < 10
 	{
 		2
 	}

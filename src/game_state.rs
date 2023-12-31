@@ -202,7 +202,9 @@ impl GameState
 		core.install_mouse()
 			.map_err(|_| "Couldn't install mouse".to_string())?;
 
-		let sfx = sfx::Sfx::new(options.sfx_volume, options.music_volume, &core)?;
+		let mut sfx = sfx::Sfx::new(options.sfx_volume, options.music_volume, &core)?;
+		sfx.set_music_file("data/new124.it");
+		sfx.play_music()?;
 
 		let ui_font =
 			Font::new_builtin(&font).map_err(|_| "Could't create builtin font.".to_string())?;

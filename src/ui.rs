@@ -10,7 +10,7 @@ use nalgebra::{Matrix4, Point2, Vector2, Vector3};
 
 pub fn ui_color() -> Color
 {
-    Color::from_rgb_f(0.6, 0.8, 0.9)
+	Color::from_rgb_f(0.6, 0.8, 0.9)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -298,7 +298,7 @@ impl Slider
 		let start_x = self.loc.x - w / 2.;
 		let end_x = self.loc.x + w / 2.;
 
-		let ww = 16.;
+		let ww = state.m;
 		if cursor_x - start_x > ww
 		{
 			state
@@ -1058,7 +1058,7 @@ impl OptionsMenu
 					h,
 					state.options.music_volume,
 					0.,
-					4.,
+					2.,
 					false,
 					|i| Action::MusicVolume(i),
 				)),
@@ -1072,7 +1072,7 @@ impl OptionsMenu
 					h,
 					state.options.sfx_volume,
 					0.,
-					4.,
+					2.,
 					false,
 					|i| Action::SfxVolume(i),
 				)),

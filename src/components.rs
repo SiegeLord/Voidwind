@@ -127,10 +127,334 @@ pub struct Solid
 }
 
 #[derive(Clone, Debug)]
+pub enum Rarity
+{
+	Normal,
+	Magic,
+	Rare,
+}
+
+#[derive(Clone, Debug)]
+pub enum WeaponPrefix
+{
+	Rapid(usize, f32),
+	Swivel(usize, f32),
+	Fast(usize, f32),
+	Accurate(usize, f32),
+	CrewSelective(usize, f32),
+	SailSelective(usize, f32),
+	InfirmarySelective(usize, f32),
+	HullSelective(usize, f32),
+	Critical(usize, f32),
+}
+
+pub const WEAPON_PREFIX_WEIGHTS: [i32; 9] = [1, 10, 10, 10, 20, 5, 5, 5, 2];
+
+impl WeaponPrefix
+{
+	pub fn name(&self) -> &'static str
+	{
+		match self
+		{
+			WeaponPrefix::Rapid(tier, _) => match tier
+			{
+				0 => "Rapid ",
+				1 => "Accelerated ",
+				2 => "Electric ",
+				_ => unreachable!(),
+			},
+			WeaponPrefix::Swivel(tier, _) => match tier
+			{
+				0 => "Rigid ",
+				1 => "Swiveled ",
+				2 => "Articulated ",
+				_ => unreachable!(),
+			},
+			WeaponPrefix::Fast(tier, _) => match tier
+			{
+				0 => "Fast ",
+				1 => "Winged ",
+				2 => "Fleet ",
+				_ => unreachable!(),
+			},
+			WeaponPrefix::Accurate(tier, _) => match tier
+			{
+				0 => "Accurate ",
+				1 => "Polished ",
+				2 => "Rifled ",
+				_ => unreachable!(),
+			},
+			WeaponPrefix::CrewSelective(tier, _) => match tier
+			{
+				0 => "Bloodthirsty ",
+				1 => "Meat-loving ",
+				2 => "Widow-making ",
+				_ => unreachable!(),
+			},
+			WeaponPrefix::SailSelective(tier, _) => match tier
+			{
+				0 => "Punching ",
+				1 => "Tearing ",
+				2 => "Ripping ",
+				_ => unreachable!(),
+			},
+			WeaponPrefix::InfirmarySelective(tier, _) => match tier
+			{
+				0 => "Cruel ",
+				1 => "Ruthless ",
+				2 => "Sadistic ",
+				_ => unreachable!(),
+			},
+			WeaponPrefix::HullSelective(tier, _) => match tier
+			{
+				0 => "Breaking ",
+				1 => "Crushing ",
+				2 => "Destroying ",
+				_ => unreachable!(),
+			},
+			WeaponPrefix::Critical(tier, _) => match tier
+			{
+				0 => "Observant ",
+				1 => "Calculating ",
+				2 => "Eagle-Eyed ",
+				_ => unreachable!(),
+			},
+		}
+	}
+
+	pub fn apply(&self, stats: &mut WeaponStats)
+	{
+		match *self
+		{
+			WeaponPrefix::Rapid(tier, f) =>
+			{
+				let breakpoints = [0.9, 0.7, 0.5, 0.3];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.fire_interval *= effect;
+			}
+			WeaponPrefix::Swivel(tier, f) =>
+			{
+				let breakpoints = [1.1, 1.3, 1.5, 1.7];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.arc *= effect;
+			}
+			WeaponPrefix::Fast(tier, f) =>
+			{
+				let breakpoints = [1.1, 1.3, 1.5, 1.7];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.speed *= effect;
+			}
+			WeaponPrefix::Accurate(tier, f) =>
+			{
+				let breakpoints = [0.9, 0.6, 0.3, 0.0];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.spread *= effect;
+			}
+			WeaponPrefix::CrewSelective(tier, f) =>
+			{
+				let breakpoints = [1.1, 1.3, 1.5, 1.7];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.crew_weight *= effect;
+			}
+			WeaponPrefix::SailSelective(tier, f) =>
+			{
+				let breakpoints = [1.1, 1.3, 1.5, 1.7];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.sail_weight *= effect;
+			}
+			WeaponPrefix::InfirmarySelective(tier, f) =>
+			{
+				let breakpoints = [1.1, 1.3, 1.5, 1.7];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.infirmary_weight *= effect;
+			}
+			WeaponPrefix::HullSelective(tier, f) =>
+			{
+				let breakpoints = [1.1, 1.3, 1.5, 1.7];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.hull_weight *= effect;
+			}
+			WeaponPrefix::Critical(tier, f) =>
+			{
+				let breakpoints = [1.1, 1.4, 1.7, 2.];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.critical_chance *= effect;
+			}
+		}
+	}
+}
+
+#[derive(Clone, Debug)]
+pub enum WeaponSuffix
+{
+	OfDamage(usize, f32),
+	OfCritMulti(usize, f32),
+	OfCrewSlaying(usize, f32),
+	OfSailSlaying(usize, f32),
+	OfItemSlaying(usize, f32),
+	OfArmorSlaying(usize, f32),
+}
+
+pub const WEAPON_SUFFIX_WEIGHTS: [i32; 6] = [5, 1, 5, 10, 10, 10];
+
+impl WeaponSuffix
+{
+	pub fn name(&self) -> &'static str
+	{
+		match *self
+		{
+			WeaponSuffix::OfDamage(tier, _) => match tier
+			{
+				0 => " of the Newt",
+				1 => " of the Whale",
+				2 => " of the Leviathan",
+				_ => unreachable!(),
+			},
+			WeaponSuffix::OfCritMulti(tier, _) => match tier
+			{
+				0 => " of Exploitation",
+				1 => " of Domination",
+				2 => " of Finality",
+				_ => unreachable!(),
+			},
+			WeaponSuffix::OfCrewSlaying(tier, _) => match tier
+			{
+				0 => " of Misery",
+				1 => " of Sickness",
+				2 => " of Death",
+				_ => unreachable!(),
+			},
+			WeaponSuffix::OfSailSlaying(tier, _) => match tier
+			{
+				0 => " of Chafing",
+				1 => " of Tattering",
+				2 => " of Fraying",
+				_ => unreachable!(),
+			},
+			WeaponSuffix::OfItemSlaying(tier, _) => match tier
+			{
+				0 => " of Frugality",
+				1 => " of Scarcity",
+				2 => " of Nothingness",
+				_ => unreachable!(),
+			},
+			WeaponSuffix::OfArmorSlaying(tier, _) => match tier
+			{
+				0 => " of the Trickle",
+				1 => " of Gushing",
+				2 => " of Flooding",
+				_ => unreachable!(),
+			},
+		}
+	}
+
+	pub fn apply(&self, stats: &mut WeaponStats)
+	{
+		match *self
+		{
+			WeaponSuffix::OfDamage(tier, f) =>
+			{
+				let breakpoints = [1.1, 1.4, 1.7, 2.];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.damage *= effect;
+			}
+			WeaponSuffix::OfCritMulti(tier, f) =>
+			{
+				let breakpoints = [1.1, 1.4, 1.7, 2.];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.critical_multiplier *= effect;
+			}
+			WeaponSuffix::OfCrewSlaying(tier, f) =>
+			{
+				let breakpoints = [1.1, 1.4, 1.7, 2.];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.crew_damage *= effect;
+			}
+			WeaponSuffix::OfSailSlaying(tier, f) =>
+			{
+				let breakpoints = [1.1, 1.4, 1.7, 2.];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.sail_damage *= effect;
+			}
+			WeaponSuffix::OfItemSlaying(tier, f) =>
+			{
+				let breakpoints = [1.1, 1.4, 1.7, 2.];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.item_chance *= effect;
+			}
+			WeaponSuffix::OfArmorSlaying(tier, f) =>
+			{
+				let breakpoints = [1.1, 1.4, 1.7, 2.];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.armor_damage *= effect;
+			}
+		}
+	}
+}
+
+#[derive(Copy, Clone, Debug)]
 pub struct WeaponStats
 {
 	pub fire_interval: f32,
+	pub speed: f32,
 	pub arc: f32,
+	pub spread: f32,
+	pub damage: f32,
+	pub critical_chance: f32,
+	pub critical_multiplier: f32,
+	pub armor_damage: f32,
+	pub sail_damage: f32,
+	pub crew_damage: f32,
+	pub item_chance: f32,
+	pub hull_weight: f32,
+	pub sail_weight: f32,
+	pub crew_weight: f32,
+	pub infirmary_weight: f32,
 }
 
 #[derive(Clone, Debug)]
@@ -138,18 +462,67 @@ pub struct Weapon
 {
 	pub readiness: f32,
 	pub time_to_fire: Option<f64>,
-	pub stats: WeaponStats,
+	pub rarity: Rarity,
+	pub prefixes: Vec<WeaponPrefix>,
+	pub suffixes: Vec<WeaponSuffix>,
+	pub name: String,
+	pub level: i32,
 }
 
 impl Weapon
 {
-	pub fn new(stats: WeaponStats) -> Self
+	pub fn stats(&self) -> WeaponStats
 	{
-		Self {
-			readiness: 0.,
-			time_to_fire: None,
-			stats: stats,
+		let mut stats = default_weapon_stats(self.level);
+		for prefix in &self.prefixes
+		{
+			prefix.apply(&mut stats);
 		}
+		for suffix in &self.suffixes
+		{
+			suffix.apply(&mut stats);
+		}
+		stats
+	}
+}
+
+fn default_weapon_stats(level: i32) -> WeaponStats
+{
+	WeaponStats {
+		fire_interval: 1.,
+		speed: 50.,
+		arc: PI / 2.,
+		spread: PI / 12.,
+		damage: 10. * level_effectiveness(level),
+		critical_chance: 0.05,
+		critical_multiplier: 1.,
+		armor_damage: 1.,
+		sail_damage: 1.,
+		crew_damage: 1.,
+		item_chance: 1.,
+		hull_weight: 1.,
+		sail_weight: 0.5,
+		crew_weight: 3.,
+		infirmary_weight: 1.,
+	}
+}
+
+#[derive(Clone, Debug)]
+pub struct Officer
+{
+	level: i32,
+}
+
+fn mod_string(name: &str, base: f32, new: f32) -> Option<String>
+{
+	let change = (100. * (new - base) / base) as i32;
+	if change == 0
+	{
+		None
+	}
+	else
+	{
+		Some(format!("{name}{change:+}%"))
 	}
 }
 
@@ -157,18 +530,40 @@ impl Weapon
 pub enum ItemKind
 {
 	Weapon(Weapon),
+	Goods(i32),
+	Cotton(i32),
+	Tobacco(i32),
+	Officer(Officer),
 }
 
 impl ItemKind
 {
-	pub fn name(&self) -> String
+	pub fn name(&self) -> &str
 	{
 		match self
 		{
-			ItemKind::Weapon(_) =>
+			ItemKind::Weapon(weapon) => &weapon.name,
+			ItemKind::Goods(_) => "Goods",
+			ItemKind::Cotton(_) => "Cotton",
+			ItemKind::Tobacco(_) => "Tobacco",
+			ItemKind::Officer(_) => "Officer",
+		}
+	}
+
+	pub fn color(&self) -> Color
+	{
+		match self
+		{
+			ItemKind::Weapon(weapon) => match weapon.rarity
 			{
-				format!("Cannon")
-			}
+				Rarity::Normal => Color::from_rgb_f(1., 1., 1.),
+				Rarity::Magic => Color::from_rgb_f(0.2, 0.2, 1.),
+				Rarity::Rare => Color::from_rgb_f(1., 1., 0.2),
+			},
+			ItemKind::Goods(_) => Color::from_rgb_f(0.2, 1., 0.2),
+			ItemKind::Cotton(_) => Color::from_rgb_f(0.2, 1., 0.2),
+			ItemKind::Tobacco(_) => Color::from_rgb_f(0.2, 1., 0.2),
+			ItemKind::Officer(_) => Color::from_rgb_f(0.2, 1., 0.2),
 		}
 	}
 
@@ -178,15 +573,132 @@ impl ItemKind
 		{
 			ItemKind::Weapon(weapon) =>
 			{
-				let fire_interval = weapon.stats.fire_interval;
-				let arc = (weapon.stats.arc / PI * 180.) as i32;
-				[
-					self.name(),
+				let stats = weapon.stats();
+
+				let fire_interval = stats.fire_interval;
+				let arc = (stats.arc / PI * 180.) as i32;
+				let damage = stats.damage as i32;
+				let level = weapon.level;
+				let mut desc = vec![
 					"".into(),
+					format!("Level: {level}"),
+					format!("Damage: {damage}"),
 					format!("Reload Time: {fire_interval:.1} sec"),
 					format!("Arc: {arc}°"),
-				]
-				.join("\n")
+					"".into(),
+				];
+
+				let base_stats = default_weapon_stats(level);
+
+				if let Some(mod_string) = mod_string(
+					"Fire Interval: ",
+					base_stats.fire_interval,
+					stats.fire_interval,
+				)
+				{
+					desc.push(mod_string)
+				}
+				if let Some(mod_string) = mod_string("Speed: ", base_stats.speed, stats.speed)
+				{
+					desc.push(mod_string)
+				}
+				if let Some(mod_string) = mod_string("Arc: ", base_stats.arc, stats.arc)
+				{
+					desc.push(mod_string)
+				}
+				if let Some(mod_string) = mod_string("Spread: ", base_stats.spread, stats.spread)
+				{
+					desc.push(mod_string)
+				}
+				if let Some(mod_string) = mod_string("Damage: ", base_stats.damage, stats.damage)
+				{
+					desc.push(mod_string)
+				}
+				if let Some(mod_string) = mod_string(
+					"Crit Chance: ",
+					base_stats.critical_chance,
+					stats.critical_chance,
+				)
+				{
+					desc.push(mod_string)
+				}
+				if let Some(mod_string) = mod_string(
+					"Crit Multiplier: ",
+					base_stats.critical_multiplier,
+					stats.critical_multiplier,
+				)
+				{
+					desc.push(mod_string)
+				}
+				if let Some(mod_string) = mod_string(
+					"Armor Damage: ",
+					base_stats.armor_damage,
+					stats.armor_damage,
+				)
+				{
+					desc.push(mod_string)
+				}
+				if let Some(mod_string) =
+					mod_string("Sail Damage: ", base_stats.sail_damage, stats.sail_damage)
+				{
+					desc.push(mod_string)
+				}
+				if let Some(mod_string) =
+					mod_string("Crew Damage: ", base_stats.crew_damage, stats.crew_damage)
+				{
+					desc.push(mod_string)
+				}
+				if let Some(mod_string) =
+					mod_string("Item Destroy: ", base_stats.item_chance, stats.item_chance)
+				{
+					desc.push(mod_string)
+				}
+				if let Some(mod_string) =
+					mod_string("Target Hull: ", base_stats.hull_weight, stats.hull_weight)
+				{
+					desc.push(mod_string)
+				}
+				if let Some(mod_string) =
+					mod_string("Target Sail: ", base_stats.sail_weight, stats.sail_weight)
+				{
+					desc.push(mod_string)
+				}
+				if let Some(mod_string) =
+					mod_string("Target Crew: ", base_stats.crew_weight, stats.crew_weight)
+				{
+					desc.push(mod_string)
+				}
+				if let Some(mod_string) = mod_string(
+					"Target Infirmary: ",
+					base_stats.infirmary_weight,
+					stats.infirmary_weight,
+				)
+				{
+					desc.push(mod_string)
+				}
+
+				desc.join("\n")
+			}
+			ItemKind::Goods(level) =>
+			{
+				let desc = ["".into(), format!("Level: {level}")];
+				desc.join("\n")
+			}
+			ItemKind::Cotton(level) =>
+			{
+				let desc = ["".into(), format!("Level: {level}")];
+				desc.join("\n")
+			}
+			ItemKind::Tobacco(level) =>
+			{
+				let desc = ["".into(), format!("Level: {level}")];
+				desc.join("\n")
+			}
+			ItemKind::Officer(officer) =>
+			{
+				let level = officer.level;
+				let desc = vec!["".into(), format!("Level: {level}")];
+				desc.join("\n")
 			}
 		}
 	}
@@ -195,9 +707,51 @@ impl ItemKind
 	{
 		match self
 		{
-			ItemKind::Weapon(_) =>
+			ItemKind::Weapon(weapon) =>
 			{
-				state.get_sprite("data/cannon_rare.cfg").unwrap().draw(
+				let sprite = match weapon.rarity
+				{
+					Rarity::Normal => "data/cannon_normal.cfg",
+					Rarity::Magic => "data/cannon_magic.cfg",
+					Rarity::Rare => "data/cannon_rare.cfg",
+				};
+				state.get_sprite(sprite).unwrap().draw(
+					pos,
+					0,
+					Color::from_rgb_f(1., 1., 1.),
+					state,
+				);
+			}
+			ItemKind::Goods(_) =>
+			{
+				state.get_sprite("data/goods.cfg").unwrap().draw(
+					pos,
+					0,
+					Color::from_rgb_f(1., 1., 1.),
+					state,
+				);
+			}
+			ItemKind::Cotton(_) =>
+			{
+				state.get_sprite("data/cotton.cfg").unwrap().draw(
+					pos,
+					0,
+					Color::from_rgb_f(1., 1., 1.),
+					state,
+				);
+			}
+			ItemKind::Tobacco(_) =>
+			{
+				state.get_sprite("data/tobacco.cfg").unwrap().draw(
+					pos,
+					0,
+					Color::from_rgb_f(1., 1., 1.),
+					state,
+				);
+			}
+			ItemKind::Officer(_) =>
+			{
+				state.get_sprite("data/officer.cfg").unwrap().draw(
 					pos,
 					0,
 					Color::from_rgb_f(1., 1., 1.),
@@ -205,6 +759,138 @@ impl ItemKind
 				);
 			}
 		}
+	}
+}
+
+pub fn generate_weapon(level: i32, rng: &mut impl Rng) -> Item
+{
+	let num_prefixes = *[0, 1, 2, 3]
+		.choose_weighted(rng, |idx| [15., 4., 2., 1.][*idx])
+		.unwrap();
+	let num_suffixes = *[0, 1, 2, 3]
+		.choose_weighted(rng, |idx| [15., 4., 2., 1.][*idx])
+		.unwrap();
+
+	let rarity = if num_prefixes == 0 && num_suffixes == 0
+	{
+		Rarity::Normal
+	}
+	else if num_prefixes <= 1 && num_suffixes <= 1
+	{
+		Rarity::Magic
+	}
+	else
+	{
+		Rarity::Rare
+	};
+	let max_tier = if level < 5
+	{
+		1
+	}
+	else if level < 10
+	{
+		2
+	}
+	else
+	{
+		3
+	};
+
+	let mut prefixes = vec![];
+	for _ in 0..num_prefixes
+	{
+		let prefix_idx = rand_distr::WeightedIndex::new(WEAPON_PREFIX_WEIGHTS)
+			.unwrap()
+			.sample(rng);
+		let tier = rng.gen_range(0..max_tier);
+		let f = rng.gen_range(0.0..1.0);
+		let prefix = match prefix_idx
+		{
+			0 => WeaponPrefix::Rapid(tier, f),
+			1 => WeaponPrefix::Swivel(tier, f),
+			2 => WeaponPrefix::Fast(tier, f),
+			3 => WeaponPrefix::Accurate(tier, f),
+			4 => WeaponPrefix::CrewSelective(tier, f),
+			5 => WeaponPrefix::SailSelective(tier, f),
+			6 => WeaponPrefix::InfirmarySelective(tier, f),
+			7 => WeaponPrefix::HullSelective(tier, f),
+			8 => WeaponPrefix::Critical(tier, f),
+			_ => unreachable!(),
+		};
+		prefixes.push(prefix);
+	}
+	let mut suffixes = vec![];
+	for _ in 0..num_suffixes
+	{
+		let suffix_idx = rand_distr::WeightedIndex::new(WEAPON_SUFFIX_WEIGHTS)
+			.unwrap()
+			.sample(rng);
+		let tier = rng.gen_range(0..max_tier);
+		let f = rng.gen_range(0.0..1.0);
+		let suffix = match suffix_idx
+		{
+			0 => WeaponSuffix::OfDamage(tier, f),
+			1 => WeaponSuffix::OfCritMulti(tier, f),
+			2 => WeaponSuffix::OfCrewSlaying(tier, f),
+			3 => WeaponSuffix::OfSailSlaying(tier, f),
+			4 => WeaponSuffix::OfItemSlaying(tier, f),
+			5 => WeaponSuffix::OfArmorSlaying(tier, f),
+			_ => unreachable!(),
+		};
+		suffixes.push(suffix);
+	}
+
+	let name = match rarity
+	{
+		Rarity::Normal => "Cannon".into(),
+		Rarity::Magic => format!(
+			"{}{}{}",
+			prefixes.first().map(|a| a.name()).unwrap_or(""),
+			"Cannon",
+			suffixes.first().map(|a| a.name()).unwrap_or("")
+		),
+		Rarity::Rare => generate_weapon_name(rng),
+	};
+
+	Item {
+		kind: ItemKind::Weapon(Weapon {
+			name: name,
+			rarity: rarity,
+			prefixes: prefixes,
+			suffixes: suffixes,
+			readiness: 0.,
+			time_to_fire: None,
+			level: level,
+		}),
+		price: 0,
+	}
+}
+
+pub fn generate_item(level: i32, rng: &mut impl Rng) -> Item
+{
+	let idx = rand_distr::WeightedIndex::new([1., 1., 1., 1., 1.])
+		.unwrap()
+		.sample(rng);
+	match idx
+	{
+		0 => generate_weapon(level, rng),
+		1 => Item {
+			kind: ItemKind::Goods(level),
+			price: 0,
+		},
+		2 => Item {
+			kind: ItemKind::Cotton(level),
+			price: 0,
+		},
+		3 => Item {
+			kind: ItemKind::Tobacco(level),
+			price: 0,
+		},
+		4 => Item {
+			kind: ItemKind::Officer(Officer { level: level }),
+			price: 0,
+		},
+		_ => unreachable!(),
 	}
 }
 
@@ -225,6 +911,7 @@ impl Item
 			{
 				weapon.readiness = 0.;
 			}
+			_ => (),
 		}
 	}
 }
@@ -288,8 +975,16 @@ pub struct CollidesWithWater;
 #[derive(Copy, Clone, Debug)]
 pub struct Damage
 {
-	pub damage: f32,
+	pub weapon_stats: WeaponStats,
 	pub team: Team,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct DamageReport
+{
+	pub damaged: bool,
+	pub item_destroy_chance: f32,
+	pub crit: bool,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -359,29 +1054,42 @@ impl ShipState
 	}
 
 	pub fn damage(&mut self, damage: &Damage, dir: Vector3<f32>, rng: &mut impl Rng)
-		-> (bool, f32)
+		-> DamageReport
 	{
 		let dir = dir.zx().normalize();
-		let mut bleed_through = 0.;
+		let mut crit = false;
+		let mut item_destroy_chance = 0.;
 		if damage.team.can_damage(&self.team)
 		{
-			if rng.gen_bool(0.25)
+			let weapon_stats = &damage.weapon_stats;
+			let mut base_damage = weapon_stats.damage;
+			if rng.gen_bool(weapon_stats.critical_chance as f64)
 			{
-				self.sails = (self.sails - damage.damage / 2.).max(0.);
+				crit = true;
+				base_damage *= 1. + weapon_stats.critical_multiplier;
+			}
+
+			if rng.gen_bool(
+				(weapon_stats.sail_weight / (weapon_stats.sail_weight + weapon_stats.hull_weight))
+					as f64,
+			)
+			{
+				self.sails = (self.sails - weapon_stats.sail_damage * base_damage / 2.).max(0.);
 			}
 			else
 			{
 				let armor_segment =
 					((4. * (PI + dir.y.atan2(-dir.x)) / (2. * PI)) - 0.5).round() as usize;
-				self.armor[armor_segment] = (self.armor[armor_segment] - damage.damage).max(0.);
+				self.armor[armor_segment] =
+					(self.armor[armor_segment] - weapon_stats.armor_damage * base_damage).max(0.);
 				let bleed_through_frac =
-					1. - (0.1 * self.armor[armor_segment] / damage.damage).min(1.);
-
-				bleed_through = damage.damage * bleed_through_frac;
+					1. - (0.1 * self.armor[armor_segment] / base_damage).min(1.);
+				item_destroy_chance = 0.01 * bleed_through_frac * weapon_stats.item_chance;
+				let bleed_through = base_damage * bleed_through_frac;
 
 				self.hull = (self.hull - bleed_through).max(0.);
 
-				let weights = [2., 1., 1.];
+				let weights = [2., weapon_stats.crew_weight, weapon_stats.infirmary_weight];
 				match rand_distr::WeightedIndex::new(&weights)
 					.unwrap()
 					.sample(rng)
@@ -390,7 +1098,8 @@ impl ShipState
 					1 =>
 					{
 						// Hit crew.
-						let crew_damage = (bleed_through / 2.).ceil() as i32;
+						let crew_damage =
+							(weapon_stats.crew_damage * bleed_through / 2.).ceil() as i32;
 						let old_crew = self.crew;
 						self.crew = (old_crew - crew_damage).max(0);
 						for _ in 0..(old_crew - self.crew)
@@ -409,11 +1118,19 @@ impl ShipState
 					_ => unreachable!(),
 				}
 			}
-			(true, bleed_through)
+			DamageReport {
+				damaged: true,
+				item_destroy_chance: item_destroy_chance,
+				crit: crit,
+			}
 		}
 		else
 		{
-			(false, 0.)
+			DamageReport {
+				damaged: false,
+				item_destroy_chance: 0.,
+				crit: false,
+			}
 		}
 	}
 
@@ -512,6 +1229,77 @@ pub struct Lights
 
 #[derive(Clone, Debug)]
 pub struct Sinking;
+
+pub fn generate_weapon_name(rng: &mut impl Rng) -> String
+{
+	let prefix = [
+		"Empyrean ",
+		"Crazed ",
+		"Oiled ",
+		"Foul ",
+		"Miasmatic ",
+		"Colossal ",
+		"Monstrous ",
+		"Phallic ",
+		"Behemothic ",
+		"Thin ",
+		"Steel ",
+		"Adamnantine ",
+		"Golden ",
+		"Shadow ",
+		"Night ",
+		"Sun ",
+		"Indominable ",
+		"",
+		"",
+		"",
+		"",
+	]
+	.choose(rng)
+	.unwrap();
+	let noun = [
+		"Blunderbuss",
+		"Ballista",
+		"Mortar",
+		"Firecracker",
+		"Catastrophe",
+		"Rome",
+		"Void",
+		"Hole",
+		"Howitzer",
+		"Ordnance",
+		"Trunk",
+		"Gun",
+		"Trebuchet",
+		"Pistol",
+		"Rifle",
+	]
+	.choose(rng)
+	.unwrap();
+	let suffix = [
+		" of War",
+		", the King-killer",
+		", Sea-Scourge",
+		" of the Moon",
+		" of the Sun",
+		" of the Artifact",
+		" of the Parliament",
+		" of the King",
+		" of the Queen",
+		" of the Consort",
+		" of the Betrayer",
+		" the Betrayer",
+		" of the Devil",
+		" of Steel",
+		"",
+		"",
+		"",
+		"",
+	]
+	.choose(rng)
+	.unwrap();
+	format!("{prefix}{noun}{suffix}")
+}
 
 pub fn generate_captain_name(team: Team, rng: &mut impl Rng) -> String
 {

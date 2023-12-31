@@ -186,7 +186,7 @@ pub struct Cell
 impl Cell
 {
 	fn new<R: Rng>(
-		center: Point2<i32>, rng: &mut R, world: &mut hecs::World,
+		center: Point2<i32>, level: i32, rng: &mut R, world: &mut hecs::World,
 		state: &mut game_state::GameState,
 	) -> Result<Self>
 	{
@@ -196,7 +196,7 @@ impl Cell
 
 		let w = CELL_SIZE as f32 / 2. - 10.;
 
-		for _ in 0..16
+		for _ in 0..1
 		{
 			let dx = world_center.x + rng.gen_range(-w..w);
 			let dy = world_center.z + rng.gen_range(-w..w);
@@ -237,7 +237,8 @@ impl Cell
 					"data/big_ship.cfg",
 				][idx],
 				team,
-				1,
+				level,
+				rng,
 				world,
 				state,
 			)?;
@@ -253,7 +254,7 @@ impl Cell
 			//world.get::<&mut comps::ShipState>(ship).unwrap().hull = 1.;
 		}
 
-		for _ in 0..0
+		for _ in 0..2
 		{
 			let dx = world_center.x + rng.gen_range(-w..w);
 			let dy = world_center.z + rng.gen_range(-w..w);
@@ -454,10 +455,11 @@ impl HUD
 								weapon.readiness,
 								slot.pos,
 								slot.dir.unwrap_or(0.),
-								weapon.stats.arc,
+								weapon.stats().arc,
 								item.kind.clone(),
 							));
 						}
+						_ => (),
 					}
 				}
 			}
@@ -1319,7 +1321,7 @@ impl EquipmentScreen
 				{
 					if Some((i, equipment_idx)) == self.hover_slot
 					{
-						hover_item = Some((pos, item.clone()));
+						hover_item = Some((pos, equipment_idx, item.clone()));
 					}
 				}
 				let w = SLOT_WIDTH;
@@ -1353,42 +1355,48 @@ impl EquipmentScreen
 				}
 			}
 
-			if let Some((pos, item)) = hover_item
+			if let Some((pos, equipment_idx, item)) = hover_item
 			{
-				state.prim.draw_filled_rectangle(
-					pos.x,
-					pos.y,
-					pos.x + m * 8.,
-					pos.y + m * 8.,
-					Color::from_rgba_f(0., 0., 0., 0.75),
-				);
-
-				let x = pos.x + m;
-				let mut y = pos.y + m;
-
+				let white = Color::from_rgb_f(1., 1., 1.);
 				let price_desc = if do_trade
 				{
-					let price = 10;
-					vec!["".into(), format!("Price: {price}")]
+					let price = item.price;
+					vec![
+						(format!("Price: {price}"), Color::from_rgb_f(1., 0.6, 0.2)),
+						("".into(), white),
+					]
 				}
 				else
 				{
 					vec![]
 				};
 
-				for line in price_desc
+				let name = vec![(item.kind.name(), item.kind.color())];
+				let desc = item.kind.description();
+
+				let lines: Vec<_> = price_desc
 					.iter()
-					.map(|s| s.as_str())
-					.chain(item.kind.description().lines())
+					.map(|(s, c)| (s.as_str(), *c))
+					.chain(name.iter().map(|(s, c)| (*s, *c)))
+					.chain(desc.lines().map(|s| (s, white)))
+					.collect();
+
+				state.prim.draw_filled_rectangle(
+					pos.x + m * 16. * [1., -1.][equipment_idx as usize],
+					pos.y,
+					pos.x,
+					pos.y + m * (lines.len() as f32 + 2.),
+					Color::from_rgba_f(0., 0., 0., 0.75),
+				);
+
+				let x = pos.x + m * 8. * [1., -1.][equipment_idx as usize];
+				let mut y = pos.y + m * 1.;
+
+				for (line, color) in lines
 				{
-					state.core.draw_text(
-						&state.ui_font,
-						Color::from_rgb_f(1., 1., 1.),
-						x,
-						y,
-						FontAlign::Left,
-						line,
-					);
+					state
+						.core
+						.draw_text(&state.ui_font, color, x, y, FontAlign::Centre, line);
 					y += lh;
 				}
 			}
@@ -1625,7 +1633,7 @@ fn make_swords(
 
 fn make_projectile(
 	pos: Point3<f32>, dir: Vector3<f32>, parent: hecs::Entity, team: comps::Team,
-	world: &mut hecs::World, state: &mut game_state::GameState,
+	weapon_stats: &comps::WeaponStats, world: &mut hecs::World, state: &mut game_state::GameState,
 ) -> Result<hecs::Entity>
 {
 	let mesh = "data/cannon_ball.glb";
@@ -1633,7 +1641,7 @@ fn make_projectile(
 	let res = world.spawn((
 		comps::Position { pos: pos, dir: 0. },
 		comps::Velocity {
-			vel: 50. * dir,
+			vel: dir * weapon_stats.speed,
 			dir_vel: 5. * PI,
 		},
 		comps::Solid {
@@ -1653,7 +1661,7 @@ fn make_projectile(
 				comps::ContactEffect::Die,
 				comps::ContactEffect::Hurt {
 					damage: comps::Damage {
-						damage: 10.,
+						weapon_stats: weapon_stats.clone(),
 						team: team,
 					},
 				},
@@ -1717,8 +1725,8 @@ struct ShipDesc
 }
 
 fn make_ship(
-	pos: Point3<f32>, ship_desc: &str, team: comps::Team, level: i32, world: &mut hecs::World,
-	state: &mut game_state::GameState,
+	pos: Point3<f32>, ship_desc: &str, team: comps::Team, level: i32, rng: &mut impl Rng,
+	world: &mut hecs::World, state: &mut game_state::GameState,
 ) -> Result<hecs::Entity>
 {
 	let ship_desc: ShipDesc = utils::load_config(ship_desc)?;
@@ -1727,21 +1735,13 @@ fn make_ship(
 	let mut stats = ship_desc.stats.clone();
 	stats.dir_speed *= PI;
 
-	let weapon = comps::Item {
-		kind: comps::ItemKind::Weapon(comps::Weapon::new(comps::WeaponStats {
-			fire_interval: 1.,
-			arc: PI / 2.0,
-		})),
-		price: 10,
-	};
-
 	let mut slots = vec![];
 	for slot_desc in &ship_desc.slots
 	{
 		slots.push(comps::ItemSlot {
 			pos: Point2::new(slot_desc.pos[0], slot_desc.pos[1]),
 			dir: slot_desc.dir.map(|d| d * PI),
-			item: Some(weapon.clone()),
+			item: Some(comps::generate_weapon(level, rng).clone()),
 			is_inventory: false,
 		});
 	}
@@ -1758,6 +1758,21 @@ fn make_ship(
 			),
 			intensity: light_desc.intensity,
 		});
+	}
+
+	let mut equipment =
+		comps::Equipment::new(ship_desc.inventory_size.max(0) as usize, true, slots);
+
+	for slot in &mut equipment.slots
+	{
+		if !slot.is_inventory
+		{
+			continue;
+		}
+		if rng.gen_bool(0.5)
+		{
+			slot.item = Some(comps::generate_item(level, rng));
+		}
 	}
 
 	let res = world.spawn((
@@ -1777,7 +1792,7 @@ fn make_ship(
 			kind: comps::CollideKind::Big,
 			parent: None,
 		},
-		comps::Equipment::new(ship_desc.inventory_size.max(0) as usize, true, slots),
+		equipment,
 		comps::ShipState::new(&stats, team, level),
 		comps::Tilt {
 			tilt: 0.,
@@ -1811,6 +1826,8 @@ struct Map
 	cells: Vec<Cell>,
 	money: i32,
 	messages: Vec<(String, f64)>,
+	level: i32,
+	global_offset: Vector2<i32>,
 }
 
 impl Map
@@ -1824,7 +1841,8 @@ impl Map
 			Point3::new(30., 0., 0.),
 			"data/boss_ship.cfg",
 			comps::Team::Pirate,
-			1,
+			10,
+			&mut rng,
 			&mut world,
 			state,
 		)?;
@@ -1846,7 +1864,13 @@ impl Map
 		{
 			for x in -CELL_RADIUS..=CELL_RADIUS
 			{
-				cells.push(Cell::new(Point2::new(x, y), &mut rng, &mut world, state)?);
+				cells.push(Cell::new(
+					Point2::new(x, y),
+					1,
+					&mut rng,
+					&mut world,
+					state,
+				)?);
 			}
 		}
 
@@ -1855,6 +1879,10 @@ impl Map
 		state.cache_bitmap("data/french_flag.png")?;
 		state.cache_sprite("data/cannon_normal.cfg")?;
 		state.cache_sprite("data/cannon_magic.cfg")?;
+		state.cache_sprite("data/goods.cfg")?;
+		state.cache_sprite("data/cotton.cfg")?;
+		state.cache_sprite("data/tobacco.cfg")?;
+		state.cache_sprite("data/officer.cfg")?;
 		state.cache_sprite("data/cannon_rare.cfg")?;
 		state.cache_sprite("data/repair.cfg")?;
 		state.cache_sprite("data/switch.cfg")?;
@@ -1877,6 +1905,8 @@ impl Map
 			zoom: 1.,
 			money: 1000,
 			messages: vec![],
+			level: 1,
+			global_offset: Vector2::new(0, 0),
 		})
 	}
 
@@ -1975,8 +2005,11 @@ impl Map
 
 		for cell_center in new_cell_centers
 		{
+			let level = (-(cell_center.y + self.global_offset.y)).max(1);
+			println!("LEVEL {} {:?}", level, self.global_offset);
 			self.cells.push(Cell::new(
 				cell_center,
+				level,
 				&mut self.rng,
 				&mut self.world,
 				state,
@@ -1984,6 +2017,8 @@ impl Map
 		}
 
 		// Recenter.
+		let cell_offt = player_cell.coords;
+		self.global_offset += cell_offt;
 		for cell in &mut self.cells
 		{
 			cell.center -= player_cell.coords;
@@ -2092,7 +2127,7 @@ impl Map
 			// Each crew member can repair 0.1 point per 1 second, probabilistically
 			let repair_prob = dt as f64;
 			let num_repaired =
-				rand_distr::Binomial::new((effective_crew.sqrt() * 0.1).ceil() as u64, repair_prob)
+				rand_distr::Binomial::new((effective_crew.sqrt() * 0.5).ceil() as u64, repair_prob)
 					.unwrap()
 					.sample(&mut self.rng);
 
@@ -2179,6 +2214,7 @@ impl Map
 								num_weapons += 1;
 							}
 						}
+						_ => (),
 					}
 				}
 			}
@@ -2200,9 +2236,10 @@ impl Map
 						comps::ItemKind::Weapon(weapon) =>
 						{
 							weapon.readiness = (weapon.readiness
-								+ dt * (fire_rate_adjustment / weapon.stats.fire_interval))
+								+ dt * (fire_rate_adjustment / weapon.stats().fire_interval))
 								.min(1.0);
 						}
+						_ => (),
 					}
 				}
 			}
@@ -2316,26 +2353,26 @@ impl Map
 					(comps::ContactEffect::Die, _) => to_die.push(id),
 					(comps::ContactEffect::Hurt { damage }, other_id) =>
 					{
-						let mut damaged = false;
+						let mut damage_report = None;
 						let mut disabled = None;
 						let mut destroyed = false;
-						let mut bleed_through = 0.;
 						if let Ok(mut ship_state) =
 							self.world.get::<&mut comps::ShipState>(other_id)
 						{
 							let was_active = ship_state.is_active();
-							(damaged, bleed_through) = ship_state.damage(
+							let report = ship_state.damage(
 								&damage,
 								(pos - other_pos).normalize(),
 								&mut self.rng,
 							);
-							if damaged && was_active != ship_state.is_active()
+							if report.damaged && was_active != ship_state.is_active()
 							{
 								disabled = Some(ship_state.level);
 								destroyed = !ship_state.is_structurally_sound();
 							}
+							damage_report = Some(report);
 						}
-						if damaged
+						if let Some(report) = damage_report
 						{
 							if let Ok(mut ai) = self.world.get::<&mut comps::AI>(other_id)
 							{
@@ -2348,7 +2385,7 @@ impl Map
 							}
 							else
 							{
-								0.01 * bleed_through / damage.damage
+								report.item_destroy_chance
 							};
 							if let Ok(mut equipment) =
 								self.world.get::<&mut comps::Equipment>(other_id)
@@ -2620,8 +2657,10 @@ impl Map
 								let slot_pos = pos.pos.zx() + rot * slot.pos.coords;
 								let slot_dir_vec = rot_slot * rot * Vector2::new(1., 0.);
 								let target_dir = (equipment.target_pos.zx() - slot_pos).normalize();
-								let min_dot = (weapon.stats.arc / 2.).cos();
-								let min_dot_2 = (2. * weapon.stats.arc / 2.).cos();
+								let weapon_stats = weapon.stats();
+								let arc = weapon_stats.arc;
+								let min_dot = (arc / 2.).cos();
+								let min_dot_2 = (2. * arc / 2.).cos();
 
 								let spawn_pos = Point3::new(slot_pos.y, 3., slot_pos.x);
 								let mut spawn_dir = None;
@@ -2632,12 +2671,10 @@ impl Map
 								else if slot_dir_vec.dot(&target_dir) > min_dot_2
 									&& equipment.allow_out_of_arc_shots
 								{
-									let cand_dir1 =
-										Rotation2::new(slot_dir + weapon.stats.arc / 2.)
-											* rot * Vector2::new(1., 0.);
-									let cand_dir2 =
-										Rotation2::new(slot_dir - weapon.stats.arc / 2.)
-											* rot * Vector2::new(1., 0.);
+									let cand_dir1 = Rotation2::new(slot_dir + arc / 2.)
+										* rot * Vector2::new(1., 0.);
+									let cand_dir2 = Rotation2::new(slot_dir - arc / 2.)
+										* rot * Vector2::new(1., 0.);
 
 									let cand_dir;
 									if target_dir.dot(&cand_dir1) > target_dir.dot(&cand_dir2)
@@ -2653,8 +2690,10 @@ impl Map
 								}
 								if let Some(spawn_dir) = spawn_dir
 								{
-									let rot =
-										Rotation2::new(self.rng.gen_range(-PI / 12.0..=PI / 12.0));
+									let rot = Rotation2::new(
+										self.rng
+											.gen_range(-weapon_stats.spread..=weapon_stats.spread),
+									);
 									let spawn_dir = rot * spawn_dir;
 									let spawn_dir =
 										Vector3::new(spawn_dir.y, 0.5, spawn_dir.x).normalize();
@@ -2663,6 +2702,7 @@ impl Map
 										spawn_dir,
 										id,
 										ship_state.team,
+										weapon.stats().clone(),
 									));
 									state.sfx.play_positional_sound(
 										"data/cannon_shot.ogg",
@@ -2674,15 +2714,24 @@ impl Map
 								}
 							}
 						}
+						_ => (),
 					}
 				}
 			}
 		}
 
-		for (spawn_pos, spawn_dir, parent, team) in spawn_projectiles
+		for (spawn_pos, spawn_dir, parent, team, stats) in spawn_projectiles
 		{
 			make_muzzle_flash(spawn_pos, &mut self.world, state)?;
-			make_projectile(spawn_pos, spawn_dir, parent, team, &mut self.world, state)?;
+			make_projectile(
+				spawn_pos,
+				spawn_dir,
+				parent,
+				team,
+				&stats,
+				&mut self.world,
+				state,
+			)?;
 		}
 		timer.record(&state.core);
 

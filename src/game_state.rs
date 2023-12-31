@@ -203,7 +203,8 @@ impl GameState
 
 		let sfx = sfx::Sfx::new(options.sfx_volume, options.music_volume, &core)?;
 
-		let ui_font = utils::load_ttf_font(&ttf, "data/MavenPro-Bold.ttf", 24)?;
+		//let ui_font = utils::load_ttf_font(&ttf, "data/MavenPro-Bold.ttf", 24)?;
+		let ui_font = utils::load_ttf_font(&ttf, "data/LibreBaskerville-Bold.ttf", 24)?;
 		let m = ui_font.get_line_height() as f32;
 
 		let controls = controls::ControlsHandler::new(options.controls.clone());

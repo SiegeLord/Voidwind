@@ -1,8 +1,6 @@
 https://freesound.org/people/qubodup/sounds/187767/
 
 TODO:
-    - Control groups (on inventory screen, shown on both screens)
-    - Itemization.
     - Ship hull level.
     - Economy.
     - Special boss event + win condition
@@ -29,6 +27,7 @@ Extra:
     - For the target indicator, do an offscreen version of it.
 
 Done:
+    - Itemization.
     - Item destruction.
     - Experience
     - A different method for weapon recovery, based on which weapons need recovering to encourage control groups

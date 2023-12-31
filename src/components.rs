@@ -1340,7 +1340,7 @@ impl DerivedShipStats
 pub struct Equipment
 {
 	pub slots: Vec<ItemSlot>,
-	pub want_action_1: bool,
+	pub want_attack: bool,
 	pub target_pos: Point3<f32>,
 	pub allow_out_of_arc_shots: bool,
 }
@@ -1365,7 +1365,7 @@ impl Equipment
 		}
 		Self {
 			slots: slots,
-			want_action_1: false,
+			want_attack: false,
 			target_pos: Point3::origin(),
 			allow_out_of_arc_shots: allow_out_of_arc_shots,
 		}
@@ -1465,7 +1465,6 @@ pub struct ShipState
 	pub armor: [f32; 4], // front, right, back, left
 
 	pub repair_boost: Vec<usize>,
-	pub board_entity: Option<hecs::Entity>,
 	pub time_to_board: f64,
 }
 
@@ -1484,7 +1483,6 @@ impl ShipState
 			infirmary: stats.infirmary,
 			armor: stats.armor,
 			repair_boost: vec![],
-			board_entity: None,
 			time_to_board: 0.,
 		}
 	}

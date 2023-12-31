@@ -2517,15 +2517,14 @@ impl Map
 		let want_dock = state.controls.get_action_state(controls::Action::Dock) > 0.5;
 		let want_stop = state.controls.get_action_state(controls::Action::Stop) > 0.5;
 		let want_queue = state.controls.get_action_state(controls::Action::Queue) > 0.5;
-		let want_action_1 = state.controls.get_action_state(controls::Action::Action1) > 0.5;
+		let want_attack = state.controls.get_action_state(controls::Action::Attack) > 0.5;
 		let want_zoom_in = state.controls.get_action_state(controls::Action::ZoomIn) > 0.5;
 		let want_zoom_out = state.controls.get_action_state(controls::Action::ZoomOut) > 0.5;
-		let want_board = state.controls.get_action_state(controls::Action::Board) > 0.5;
 		let want_target = state.controls.get_action_state(controls::Action::Target) > 0.5;
 
 		let mouse_in_buffer = self.mouse_in_buffer;
 		let mouse_ground_pos = self.get_mouse_ground_pos(state);
-		if mouse_in_buffer && (want_dock || want_action_1 || want_board || want_target)
+		if mouse_in_buffer && (want_dock || want_attack || want_target)
 		{
 			let d = 1.;
 			let mouse_entries = grid.query_rect(
@@ -2587,19 +2586,19 @@ impl Map
 				target.clear(|m| to_die.push(m));
 			}
 		}
-		if want_action_1 && mouse_in_buffer && player_alive
+		if want_attack && mouse_in_buffer && player_alive
 		{
 			if let Ok(mut equipment) = self.world.get::<&mut comps::Equipment>(self.player)
 			{
-				equipment.want_action_1 = true;
+				equipment.want_attack = true;
 				equipment.target_pos = mouse_ground_pos;
 			}
 		}
-		if !want_action_1
+		if !want_attack
 		{
 			if let Ok(mut equipment) = self.world.get::<&mut comps::Equipment>(self.player)
 			{
-				equipment.want_action_1 = false;
+				equipment.want_attack = false;
 			}
 		}
 		if want_dock && player_alive && self.target_entity != Some(self.player)
@@ -2660,31 +2659,6 @@ impl Map
 				}
 			}
 		}
-		if want_board
-			&& player_alive
-			&& self.target_entity != Some(self.player)
-			&& self.target_entity.is_some()
-		{
-			let target_entity = self.target_entity.unwrap();
-
-			let mut query = self.world.query::<&mut comps::ShipState>();
-			let mut view = query.view();
-			if let [Some(target_ship_state), Some(player_ship_state)] =
-				view.get_mut_n([target_entity, self.player])
-			{
-				if target_ship_state.team.is_enemy(&player_ship_state.team)
-				{
-					player_ship_state.board_entity = Some(target_entity);
-				}
-			}
-		}
-		if !want_board && player_alive
-		{
-			if let Ok(mut ship_state) = self.world.get::<&mut comps::ShipState>(self.player)
-			{
-				ship_state.board_entity = None;
-			}
-		}
 		if want_zoom_in
 		{
 			self.zoom *= 1.25;
@@ -2705,8 +2679,8 @@ impl Map
 		{
 			let derived_stats = equipment.derived_stats();
 			// No buffering
-			let want_action_1 = equipment.want_action_1;
-			//equipment.want_action_1 = false;
+			let want_attack = equipment.want_action_1;
+			//equipment.want_attack = false;
 			for slot in &mut equipment.slots
 			{
 				if slot.is_inventory
@@ -2720,7 +2694,7 @@ impl Map
 						comps::ItemKind::Weapon(weapon) =>
 						{
 							if weapon.readiness >= 1.0
-								&& want_action_1 && weapon.time_to_fire.is_none()
+								&& want_attack && weapon.time_to_fire.is_none()
 							{
 								weapon.time_to_fire =
 									Some(state.time() + self.rng.gen_range(0.0..0.2));
@@ -2817,66 +2791,6 @@ impl Map
 			)?;
 		}
 		timer.record(&state.core);
-
-		// Boarding.
-		let mut board_pairs = vec![];
-		let mut sword_positions = vec![];
-		for (id, (pos, solid, ship_state)) in self
-			.world
-			.query::<(&comps::Position, &comps::Solid, &mut comps::ShipState)>()
-			.iter()
-		{
-			if state.time() > ship_state.time_to_board
-			{
-				if let Some(board_entity) = ship_state.board_entity
-				{
-					if let (Ok(target_pos), Ok(target_solid)) = (
-						self.world.get::<&comps::Position>(board_entity),
-						self.world.get::<&comps::Solid>(board_entity),
-					)
-					{
-						if (target_pos.pos - pos.pos).magnitude()
-							< 2. + solid.size + target_solid.size
-						{
-							board_pairs.push((id, board_entity));
-							ship_state.time_to_board = state.time() + 0.5;
-							sword_positions.push(target_pos.pos);
-						}
-					}
-				}
-			}
-		}
-
-		for pos in sword_positions
-		{
-			make_swords(pos, &mut self.world, state)?;
-		}
-
-		{
-			let mut query = self.world.query::<&mut comps::ShipState>();
-			let mut view = query.view();
-			for (src_id, target_id) in board_pairs
-			{
-				if let [Some(src_ship_state), Some(target_ship_state)] =
-					view.get_mut_n([src_id, target_id])
-				{
-					// Attackers advantage + bias for the experience.
-					let src_strength = comps::level_effectiveness(src_ship_state.level) + 0.5;
-					let target_strength = comps::level_effectiveness(target_ship_state.level);
-					let attack_prob = (src_strength / (src_strength + target_strength)) as f64;
-					if self.rng.gen_bool(attack_prob)
-					{
-						target_ship_state.crew = (target_ship_state.crew - 1).max(0);
-						dbg!("Attackers won");
-					}
-					else
-					{
-						src_ship_state.crew = (src_ship_state.crew - 1).max(0);
-						src_ship_state.wounded += 1;
-					}
-				}
-			}
-		}
 
 		// Update player pos.
 		if let Ok(pos) = self.world.get::<&comps::Position>(self.player)
@@ -3063,7 +2977,7 @@ impl Map
 							.unwrap_or(false)
 						{
 							ai.state = comps::AIState::Idle;
-							equipment.want_action_1 = false;
+							equipment.want_attack = false;
 						}
 						else
 						{
@@ -3074,7 +2988,7 @@ impl Map
 							if diff.magnitude() > attack_radius
 							{
 								ai.state = comps::AIState::Pursuing(target_entity);
-								equipment.want_action_1 = false;
+								equipment.want_attack = false;
 							}
 							else
 							{
@@ -3088,7 +3002,7 @@ impl Map
 										marker: None,
 									});
 								}
-								equipment.want_action_1 = true;
+								equipment.want_attack = true;
 								equipment.target_pos = target_pos.pos;
 							}
 						}

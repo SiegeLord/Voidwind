@@ -9,7 +9,7 @@ pub enum Action
 	Move,
 	Stop,
 	Queue,
-	Action1,
+	Attack,
 	Inventory,
 	Dock,
 	ZoomOut,
@@ -27,7 +27,7 @@ impl Action
 			Action::Move => "Move",
 			Action::Stop => "Stop",
 			Action::Queue => "Queue",
-			Action::Action1 => "Action1",
+			Action::Attack => "Attack",
 			Action::Inventory => "Inventory",
 			Action::Dock => "Dock",
 			Action::ZoomOut => "ZoomOut",
@@ -490,7 +490,7 @@ impl Controls
 			[Some(Input::Keyboard(allegro::KeyCode::LShift)), None],
 		);
 		action_to_inputs.insert(
-			Action::Action1,
+			Action::Attack,
 			[Some(Input::Keyboard(allegro::KeyCode::Q)), None],
 		);
 		action_to_inputs.insert(

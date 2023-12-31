@@ -197,7 +197,7 @@ impl OfficerPrefix
 			}
 			OfficerPrefix::Speed(tier, f) =>
 			{
-				let breakpoints = [0., 0.1, 0.2, 0.3];
+				let breakpoints = [0.1, 0.2, 0.3, 0.4];
 				let min = breakpoints[tier];
 				let max = breakpoints[tier + 1];
 				let effect = min + f * (max - min);
@@ -303,7 +303,7 @@ impl OfficerSuffix
 			}
 			OfficerSuffix::HullRepair(tier, f) =>
 			{
-				let breakpoints = [0., 0.1, 0.2, 0.3];
+				let breakpoints = [0.1, 0.15, 0.2, 0.25];
 				let min = breakpoints[tier];
 				let max = breakpoints[tier + 1];
 				let effect = min + f * (max - min);
@@ -711,7 +711,7 @@ fn default_weapon_stats(level: i32) -> WeaponStats
 		speed: 50.,
 		arc: PI / 2.,
 		spread: PI / 12.,
-		damage: 10. * level_effectiveness(level),
+		damage: 10. * level_effectiveness(level).sqrt(),
 		critical_chance: 0.05,
 		critical_multiplier: 1.,
 		armor_damage: 1.,
@@ -1449,6 +1449,22 @@ pub struct ShipStats
 	pub armor: [f32; 4], // front, right, back, left
 	pub speed: f32,
 	pub dir_speed: f32,
+	pub exp_bonus: f32,
+}
+
+impl ShipStats
+{
+	pub fn scale_to_level(&mut self, level: i32)
+	{
+		let f = level_effectiveness(level).sqrt();
+		self.hull *= f;
+		self.sails *= f;
+		self.infirmary *= f;
+		for a in &mut self.armor
+		{
+			*a *= f;
+		}
+	}
 }
 
 #[derive(Clone, Debug)]

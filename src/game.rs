@@ -197,7 +197,9 @@ impl Cell
 
 		let w = CELL_SIZE as f32 / 2. - 10.;
 
-		for _ in 0..1
+		let num_enemies = if center == Point2::origin() { 0 } else { 1 };
+
+		for _ in 0..num_enemies
 		{
 			let dx = world_center.x + rng.gen_range(-w..w);
 			let dy = world_center.z + rng.gen_range(-w..w);
@@ -438,7 +440,6 @@ impl HUD
 			map.world.get::<&comps::Equipment>(map.player),
 		)
 		{
-			let derived_stats = equipment.derived_stats();
 			for slot in &equipment.slots
 			{
 				if slot.is_inventory
@@ -457,7 +458,7 @@ impl HUD
 								weapon.readiness,
 								slot.pos,
 								slot.dir.unwrap_or(0.),
-								weapon.stats().arc / (1. + derived_stats.accuracy),
+								weapon.stats().arc,
 								item.kind.clone(),
 							));
 						}
@@ -1761,6 +1762,7 @@ fn make_ship(
 
 	let mut stats = ship_desc.stats.clone();
 	stats.dir_speed *= PI;
+	stats.scale_to_level(level);
 
 	let mut slots = vec![];
 	for slot_desc in &ship_desc.slots
@@ -1874,7 +1876,7 @@ impl Map
 
 		let player = make_ship(
 			Point3::new(30., 0., 0.),
-			"data/small_ship.cfg",
+			"data/big_ship.cfg",
 			comps::Team::English,
 			1,
 			&mut rng,
@@ -2300,7 +2302,7 @@ impl Map
 		timer.record(&state.core);
 		if state.tick % 64 == 0
 		{
-			println!("Num ships: {}", num_ships);
+			//println!("Num ships: {}", num_ships);
 		}
 
 		// Tilt.
@@ -2334,7 +2336,7 @@ impl Map
 		}
 		if state.tick % 64 == 0
 		{
-			println!("Colliding pairs: {}", colliding_pairs.len());
+			//println!("Colliding pairs: {}", colliding_pairs.len());
 		}
 
 		let mut on_contact_effects = vec![];
@@ -2409,8 +2411,10 @@ impl Map
 						let mut damage_report = None;
 						let mut disabled = None;
 						let mut destroyed = false;
-						if let Ok(mut ship_state) =
-							self.world.get::<&mut comps::ShipState>(other_id)
+						if let (Ok(mut ship_state), Ok(ship_stats)) = (
+							self.world.get::<&mut comps::ShipState>(other_id),
+							self.world.get::<&comps::ShipStats>(other_id),
+						)
 						{
 							let was_active = ship_state.is_active();
 							let report = ship_state.damage(
@@ -2420,7 +2424,7 @@ impl Map
 							);
 							if report.damaged && was_active != ship_state.is_active()
 							{
-								disabled = Some(ship_state.level);
+								disabled = Some((ship_state.level, ship_stats.exp_bonus));
 								destroyed = !ship_state.is_structurally_sound();
 							}
 							damage_report = Some(report);
@@ -2463,7 +2467,7 @@ impl Map
 										}
 										slot.item = None;
 									}
-									if destroyed
+									if disabled.is_some()
 									{
 										// Officers die.
 										if let Some(item) = slot.item.as_ref()
@@ -2477,7 +2481,7 @@ impl Map
 								}
 							}
 						}
-						if let Some(level) = disabled
+						if let Some((level, exp_bonus)) = disabled
 						{
 							let parent_id = self
 								.world
@@ -2496,9 +2500,16 @@ impl Map
 								{
 									0.3_f32.powi(level_diff - 4)
 								};
-								ship_state.experience += f * comps::enemy_experience(level);
+								ship_state.experience +=
+									f * exp_bonus * comps::enemy_experience(level);
 								//dbg!(ship_state.experience);
+								let old_level = ship_state.level;
 								ship_state.compute_level();
+								if old_level != ship_state.level && parent_id == Some(self.player)
+								{
+									self.messages
+										.push(("Crew got more experienced!".into(), state.time()));
+								}
 							}
 						}
 					}

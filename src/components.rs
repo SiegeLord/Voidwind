@@ -135,6 +135,224 @@ pub enum Rarity
 }
 
 #[derive(Clone, Debug)]
+pub enum OfficerPrefix
+{
+	Rapid(usize, f32),
+	Speed(usize, f32),
+	Accurate(usize, f32),
+	Critical(usize, f32),
+}
+
+pub const OFFICER_PREFIX_WEIGHTS: [i32; 4] = [4, 1, 10, 4];
+
+impl OfficerPrefix
+{
+	pub fn name(&self) -> &'static str
+	{
+		match self
+		{
+			OfficerPrefix::Rapid(tier, _) => match tier
+			{
+				0 => "Wired ",
+				1 => "Coffeed ",
+				2 => "Quicksilvered ",
+				_ => unreachable!(),
+			},
+			OfficerPrefix::Speed(tier, _) => match tier
+			{
+				0 => "Piloting ",
+				1 => "Navigational ",
+				2 => "Cartographic ",
+				_ => unreachable!(),
+			},
+			OfficerPrefix::Accurate(tier, _) => match tier
+			{
+				0 => "Sparrow-eyed ",
+				1 => "Crow-eyed ",
+				2 => "Eagle-eyed ",
+				_ => unreachable!(),
+			},
+			OfficerPrefix::Critical(tier, _) => match tier
+			{
+				0 => "Spectacled ",
+				1 => "Telescoped ",
+				2 => "Sectanted ",
+				_ => unreachable!(),
+			},
+		}
+	}
+
+	pub fn apply(&self, stats: &mut DerivedShipStats)
+	{
+		match *self
+		{
+			OfficerPrefix::Rapid(tier, f) =>
+			{
+				let breakpoints = [0.1, 0.3, 0.5, 0.7];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.reload_speed += effect;
+			}
+			OfficerPrefix::Speed(tier, f) =>
+			{
+				let breakpoints = [0., 0.1, 0.2, 0.3];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.speed += effect;
+			}
+			OfficerPrefix::Accurate(tier, f) =>
+			{
+				let breakpoints = [0.1, 0.2, 0.3, 0.4];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.accuracy += effect;
+			}
+			OfficerPrefix::Critical(tier, f) =>
+			{
+				let breakpoints = [0.1, 0.3, 0.5, 0.7];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.critical_chance += effect;
+			}
+		}
+	}
+}
+
+#[derive(Clone, Debug)]
+pub enum OfficerSuffix
+{
+	ArmorRepair(usize, f32),
+	HullRepair(usize, f32),
+	InfirmaryRepair(usize, f32),
+	SailRepair(usize, f32),
+	ItemProtect(usize, f32),
+	Medic(usize, f32),
+}
+
+impl OfficerSuffix
+{
+	pub fn name(&self) -> &'static str
+	{
+		match self
+		{
+			OfficerSuffix::ArmorRepair(tier, _) => match tier
+			{
+				0 => ", Apprentice Armourer",
+				1 => ", Junior Armourer",
+				2 => ", Master Armourer",
+				_ => unreachable!(),
+			},
+			OfficerSuffix::HullRepair(tier, _) => match tier
+			{
+				0 => ", Woodworker",
+				1 => ", Carpenter",
+				2 => ", Artisan",
+				_ => unreachable!(),
+			},
+			OfficerSuffix::InfirmaryRepair(tier, _) => match tier
+			{
+				0 => " of the Leech",
+				1 => " of the Serpent",
+				2 => " of the Ambrosia",
+				_ => unreachable!(),
+			},
+			OfficerSuffix::SailRepair(tier, _) => match tier
+			{
+				0 => " of the Stitching",
+				1 => " of the Fid",
+				2 => " of the Sail",
+				_ => unreachable!(),
+			},
+			OfficerSuffix::ItemProtect(tier, _) => match tier
+			{
+				0 => ", Arranger",
+				1 => ", Keeper",
+				2 => ", Quartermaster",
+				_ => unreachable!(),
+			},
+			OfficerSuffix::Medic(tier, _) => match tier
+			{
+				0 => " of Mending",
+				1 => " of Stiching",
+				2 => " of Curing",
+				_ => unreachable!(),
+			},
+		}
+	}
+
+	pub fn apply(&self, stats: &mut DerivedShipStats)
+	{
+		match *self
+		{
+			OfficerSuffix::ArmorRepair(tier, f) =>
+			{
+				let breakpoints = [0.1, 0.3, 0.5, 0.7];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.armor_repair += effect;
+			}
+			OfficerSuffix::HullRepair(tier, f) =>
+			{
+				let breakpoints = [0., 0.1, 0.2, 0.3];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.hull_repair += effect;
+			}
+			OfficerSuffix::InfirmaryRepair(tier, f) =>
+			{
+				let breakpoints = [0.1, 0.2, 0.3, 0.4];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.infirmary_repair += effect;
+			}
+			OfficerSuffix::SailRepair(tier, f) =>
+			{
+				let breakpoints = [0.1, 0.3, 0.5, 0.7];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.sail_repair += effect;
+			}
+			OfficerSuffix::ItemProtect(tier, f) =>
+			{
+				let breakpoints = [0.1, 0.3, 0.5, 0.7];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.item_protect += effect;
+			}
+			OfficerSuffix::Medic(tier, f) =>
+			{
+				let breakpoints = [0.1, 0.3, 0.5, 0.7];
+				let min = breakpoints[tier];
+				let max = breakpoints[tier + 1];
+				let effect = min + f * (max - min);
+
+				stats.medic += effect;
+			}
+		}
+	}
+}
+
+pub const OFFICER_SUFFIX_WEIGHTS: [i32; 6] = [10, 10, 10, 10, 1, 5];
+
+#[derive(Clone, Debug)]
 pub enum WeaponPrefix
 {
 	Rapid(usize, f32),
@@ -510,7 +728,10 @@ fn default_weapon_stats(level: i32) -> WeaponStats
 #[derive(Clone, Debug)]
 pub struct Officer
 {
+	name: String,
 	level: i32,
+	prefixes: Vec<OfficerPrefix>,
+	suffixes: Vec<OfficerSuffix>,
 }
 
 fn mod_string(name: &str, base: f32, new: f32) -> Option<String>
@@ -546,7 +767,7 @@ impl ItemKind
 			ItemKind::Goods(_) => "Goods",
 			ItemKind::Cotton(_) => "Cotton",
 			ItemKind::Tobacco(_) => "Tobacco",
-			ItemKind::Officer(_) => "Officer",
+			ItemKind::Officer(officer) => &officer.name,
 		}
 	}
 
@@ -563,7 +784,7 @@ impl ItemKind
 			ItemKind::Goods(_) => Color::from_rgb_f(0.2, 1., 0.2),
 			ItemKind::Cotton(_) => Color::from_rgb_f(0.2, 1., 0.2),
 			ItemKind::Tobacco(_) => Color::from_rgb_f(0.2, 1., 0.2),
-			ItemKind::Officer(_) => Color::from_rgb_f(0.2, 1., 0.2),
+			ItemKind::Officer(_) => Color::from_rgb_f(1., 0.2, 0.2),
 		}
 	}
 
@@ -697,7 +918,79 @@ impl ItemKind
 			ItemKind::Officer(officer) =>
 			{
 				let level = officer.level;
-				let desc = vec!["".into(), format!("Level: {level}")];
+				let mut desc = vec!["".into(), format!("Level: {level}"), "".into()];
+				let mut stats = DerivedShipStats::new();
+				for prefix in &officer.prefixes
+				{
+					prefix.apply(&mut stats);
+				}
+				for suffix in &officer.suffixes
+				{
+					suffix.apply(&mut stats);
+				}
+
+				if stats.reload_speed != 0.0
+				{
+					desc.push(format!(
+						"Fire rate: {:+}%",
+						(stats.reload_speed * 100.) as i32
+					));
+				}
+				if stats.speed != 0.0
+				{
+					desc.push(format!("Speed: {:+}%", (stats.speed * 100.) as i32));
+				}
+				if stats.accuracy != 0.0
+				{
+					desc.push(format!("Accuracy: {:+}%", (stats.accuracy * 100.) as i32));
+				}
+				if stats.critical_chance != 0.0
+				{
+					desc.push(format!(
+						"Critical chance: {:+}%",
+						(stats.critical_chance * 100.) as i32
+					));
+				}
+				if stats.armor_repair != 0.0
+				{
+					desc.push(format!(
+						"Armour repair: {:+}%",
+						(stats.armor_repair * 100.) as i32
+					));
+				}
+				if stats.hull_repair != 0.0
+				{
+					desc.push(format!(
+						"Hull repair: {:+}%",
+						(stats.hull_repair * 100.) as i32
+					));
+				}
+				if stats.infirmary_repair != 0.0
+				{
+					desc.push(format!(
+						"Infirmary repair: {:+}%",
+						(stats.infirmary_repair * 100.) as i32
+					));
+				}
+				if stats.sail_repair != 0.0
+				{
+					desc.push(format!(
+						"Sail repair: {:+}%",
+						(stats.sail_repair * 100.) as i32
+					));
+				}
+				if stats.item_protect != 0.0
+				{
+					desc.push(format!(
+						"Item protection: {:+}%",
+						(stats.item_protect * 100.) as i32
+					));
+				}
+				if stats.medic != 0.0
+				{
+					desc.push(format!("Healing: {:+}%", (stats.medic * 100.) as i32));
+				}
+
 				desc.join("\n")
 			}
 		}
@@ -765,10 +1058,10 @@ impl ItemKind
 pub fn generate_weapon(level: i32, rng: &mut impl Rng) -> Item
 {
 	let num_prefixes = *[0, 1, 2, 3]
-		.choose_weighted(rng, |idx| [15., 4., 2., 1.][*idx])
+		.choose_weighted(rng, |idx| [25., 10., 2., 1.][*idx])
 		.unwrap();
 	let num_suffixes = *[0, 1, 2, 3]
-		.choose_weighted(rng, |idx| [15., 4., 2., 1.][*idx])
+		.choose_weighted(rng, |idx| [25., 10., 2., 1.][*idx])
 		.unwrap();
 
 	let rarity = if num_prefixes == 0 && num_suffixes == 0
@@ -862,7 +1155,93 @@ pub fn generate_weapon(level: i32, rng: &mut impl Rng) -> Item
 			time_to_fire: None,
 			level: level,
 		}),
-		price: 0,
+		price: 10,
+	}
+}
+
+pub fn generate_officer(level: i32, rng: &mut impl Rng) -> Item
+{
+	let mut num_prefixes = *[0, 1].choose_weighted(rng, |idx| [10., 1.][*idx]).unwrap();
+	let mut num_suffixes = *[0, 1].choose_weighted(rng, |idx| [10., 1.][*idx]).unwrap();
+	if num_prefixes == 0 && num_suffixes == 0
+	{
+		if rng.gen_bool(0.5)
+		{
+			num_prefixes = 1;
+		}
+		else
+		{
+			num_suffixes = 1;
+		}
+	}
+
+	let max_tier = if level < 5
+	{
+		1
+	}
+	else if level < 10
+	{
+		2
+	}
+	else
+	{
+		3
+	};
+
+	let mut prefixes = vec![];
+	for _ in 0..num_prefixes
+	{
+		let prefix_idx = rand_distr::WeightedIndex::new(OFFICER_PREFIX_WEIGHTS)
+			.unwrap()
+			.sample(rng);
+		let tier = rng.gen_range(0..max_tier);
+		let f = rng.gen_range(0.0..1.0);
+		let prefix = match prefix_idx
+		{
+			0 => OfficerPrefix::Rapid(tier, f),
+			1 => OfficerPrefix::Speed(tier, f),
+			2 => OfficerPrefix::Accurate(tier, f),
+			3 => OfficerPrefix::Critical(tier, f),
+			_ => unreachable!(),
+		};
+		prefixes.push(prefix);
+	}
+	let mut suffixes = vec![];
+	for _ in 0..num_suffixes
+	{
+		let suffix_idx = rand_distr::WeightedIndex::new(OFFICER_SUFFIX_WEIGHTS)
+			.unwrap()
+			.sample(rng);
+		let tier = rng.gen_range(0..max_tier);
+		let f = rng.gen_range(0.0..1.0);
+		let suffix = match suffix_idx
+		{
+			0 => OfficerSuffix::ArmorRepair(tier, f),
+			1 => OfficerSuffix::HullRepair(tier, f),
+			2 => OfficerSuffix::InfirmaryRepair(tier, f),
+			3 => OfficerSuffix::SailRepair(tier, f),
+			4 => OfficerSuffix::ItemProtect(tier, f),
+			5 => OfficerSuffix::Medic(tier, f),
+			_ => unreachable!(),
+		};
+		suffixes.push(suffix);
+	}
+
+	let name = format!(
+		"{}{}{}",
+		prefixes.first().map(|a| a.name()).unwrap_or(""),
+		"Officer",
+		suffixes.first().map(|a| a.name()).unwrap_or("")
+	);
+
+	Item {
+		kind: ItemKind::Officer(Officer {
+			name: name,
+			prefixes: prefixes,
+			suffixes: suffixes,
+			level: level,
+		}),
+		price: 10,
 	}
 }
 
@@ -876,20 +1255,17 @@ pub fn generate_item(level: i32, rng: &mut impl Rng) -> Item
 		0 => generate_weapon(level, rng),
 		1 => Item {
 			kind: ItemKind::Goods(level),
-			price: 0,
+			price: 10,
 		},
 		2 => Item {
 			kind: ItemKind::Cotton(level),
-			price: 0,
+			price: 10,
 		},
 		3 => Item {
 			kind: ItemKind::Tobacco(level),
-			price: 0,
+			price: 10,
 		},
-		4 => Item {
-			kind: ItemKind::Officer(Officer { level: level }),
-			price: 0,
-		},
+		4 => generate_officer(level, rng),
 		_ => unreachable!(),
 	}
 }
@@ -923,6 +1299,41 @@ pub struct ItemSlot
 	pub pos: Point2<f32>,
 	pub dir: Option<f32>,
 	pub is_inventory: bool,
+	pub weapons_allowed: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct DerivedShipStats
+{
+	pub reload_speed: f32,
+	pub speed: f32,
+	pub accuracy: f32,
+	pub critical_chance: f32,
+	pub armor_repair: f32,
+	pub hull_repair: f32,
+	pub infirmary_repair: f32,
+	pub sail_repair: f32,
+	pub item_protect: f32,
+	pub medic: f32,
+}
+
+impl DerivedShipStats
+{
+	pub fn new() -> Self
+	{
+		Self {
+			reload_speed: 0.,
+			speed: 0.,
+			accuracy: 0.,
+			critical_chance: 0.,
+			armor_repair: 0.,
+			hull_repair: 0.,
+			infirmary_repair: 0.,
+			sail_repair: 0.,
+			item_protect: 0.,
+			medic: 0.,
+		}
+	}
 }
 
 #[derive(Clone, Debug)]
@@ -949,6 +1360,7 @@ impl Equipment
 				pos: Point2::new(-2. * y, -2. * x),
 				dir: None,
 				is_inventory: true,
+				weapons_allowed: true,
 			})
 		}
 		Self {
@@ -957,6 +1369,30 @@ impl Equipment
 			target_pos: Point3::origin(),
 			allow_out_of_arc_shots: allow_out_of_arc_shots,
 		}
+	}
+
+	pub fn derived_stats(&self) -> DerivedShipStats
+	{
+		let mut stats = DerivedShipStats::new();
+		for item_slot in &self.slots
+		{
+			if item_slot.is_inventory
+			{
+				continue;
+			}
+			if let Some(ItemKind::Officer(officer)) = item_slot.item.as_ref().map(|a| &a.kind)
+			{
+				for prefix in &officer.prefixes
+				{
+					prefix.apply(&mut stats);
+				}
+				for suffix in &officer.suffixes
+				{
+					suffix.apply(&mut stats);
+				}
+			}
+		}
+		stats
 	}
 }
 

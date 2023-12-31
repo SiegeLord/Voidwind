@@ -6,6 +6,7 @@ use allegro::*;
 use allegro_font::*;
 use allegro_primitives::*;
 use gl::CULL_FACE;
+use gltf::accessor;
 use gltf::accessor::util::SparseIndicesIter;
 use na::{
 	Isometry3, Matrix4, Perspective3, Point2, Point3, Quaternion, RealField, Rotation2, Rotation3,
@@ -437,6 +438,7 @@ impl HUD
 			map.world.get::<&comps::Equipment>(map.player),
 		)
 		{
+			let derived_stats = equipment.derived_stats();
 			for slot in &equipment.slots
 			{
 				if slot.is_inventory
@@ -455,7 +457,7 @@ impl HUD
 								weapon.readiness,
 								slot.pos,
 								slot.dir.unwrap_or(0.),
-								weapon.stats().arc,
+								weapon.stats().arc / (1. + derived_stats.accuracy),
 								item.kind.clone(),
 							));
 						}
@@ -1069,20 +1071,40 @@ impl EquipmentScreen
 						}
 						else if !self.mouse_button_down && self.dragged_item.is_some()
 						{
-							// Drop item.
-							// If dropping into trade partner's window, grab the money.
-							let (source_i, source_equipment_idx, mut item) =
-								self.dragged_item.take().unwrap();
-							if equipment_idx == 0 && do_trade
+							let is_weapon = if let Some(comps::ItemKind::Weapon(_)) =
+								self.dragged_item.as_ref().map(|(_, _, i)| &i.kind)
 							{
-								map.money += item.price;
+								true
 							}
-							old_item = slot
-								.item
-								.take()
-								.map(|item| (source_i, source_equipment_idx, item));
-							item.reset_cooldowns();
-							slot.item = Some(item);
+							else
+							{
+								false
+							};
+							if is_weapon && !slot.weapons_allowed
+							{
+								old_item = self.dragged_item.take();
+								if do_trade
+								{
+									map.money += old_item.as_ref().unwrap().2.price;
+								}
+							}
+							else
+							{
+								// Drop item.
+								// If dropping into trade partner's window, grab the money.
+								let (source_i, source_equipment_idx, mut item) =
+									self.dragged_item.take().unwrap();
+								if equipment_idx == 0 && do_trade
+								{
+									map.money += item.price;
+								}
+								old_item = slot
+									.item
+									.take()
+									.map(|item| (source_i, source_equipment_idx, item));
+								item.reset_cooldowns();
+								slot.item = Some(item);
+							}
 						}
 						if !self.mouse_button_down
 						{
@@ -1093,6 +1115,10 @@ impl EquipmentScreen
 				if !self.mouse_button_down && self.dragged_item.is_some()
 				{
 					old_item = self.dragged_item.take();
+					if do_trade
+					{
+						map.money += old_item.as_ref().unwrap().2.price;
+					}
 				}
 				if let Some((i, equipment_idx, item)) = old_item
 				{
@@ -1703,6 +1729,7 @@ struct SlotDesc
 {
 	pos: [f32; 2],
 	dir: Option<f32>,
+	weapons_allowed: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -1741,8 +1768,16 @@ fn make_ship(
 		slots.push(comps::ItemSlot {
 			pos: Point2::new(slot_desc.pos[0], slot_desc.pos[1]),
 			dir: slot_desc.dir.map(|d| d * PI),
-			item: Some(comps::generate_weapon(level, rng).clone()),
+			item: if slot_desc.weapons_allowed
+			{
+				Some(comps::generate_weapon(level, rng).clone())
+			}
+			else
+			{
+				None
+			},
 			is_inventory: false,
+			weapons_allowed: slot_desc.weapons_allowed,
 		});
 	}
 
@@ -1839,9 +1874,9 @@ impl Map
 
 		let player = make_ship(
 			Point3::new(30., 0., 0.),
-			"data/boss_ship.cfg",
-			comps::Team::Pirate,
-			10,
+			"data/small_ship.cfg",
+			comps::Team::English,
+			1,
 			&mut rng,
 			&mut world,
 			state,
@@ -1855,8 +1890,8 @@ impl Map
 			//ship_state.sails = 30.;
 			//ship_state.armor[0] = 50.;
 			//ship_state.armor[1] = 0.;
-			ship_state.experience = comps::level_experience(10);
-			ship_state.compute_level();
+			//ship_state.experience = comps::level_experience(10);
+			//ship_state.compute_level();
 		}
 
 		let mut cells = vec![];
@@ -2118,6 +2153,7 @@ impl Map
 				// Can't fix a broken ship.
 				continue;
 			}
+			let derived_stats = equipment.derived_stats();
 
 			ship_state.compute_level();
 
@@ -2152,31 +2188,46 @@ impl Map
 				{
 					0 =>
 					{
-						ship_state.armor[0] =
-							(ship_state.armor[0] + num_repaired).min(stats.armor[0])
+						ship_state.armor[0] = (ship_state.armor[0]
+							+ num_repaired * (1. + derived_stats.armor_repair))
+							.min(stats.armor[0])
 					}
 					1 =>
 					{
-						ship_state.armor[1] =
-							(ship_state.armor[1] + num_repaired).min(stats.armor[1])
+						ship_state.armor[1] = (ship_state.armor[1]
+							+ num_repaired * (1. + derived_stats.armor_repair))
+							.min(stats.armor[1])
 					}
 					2 =>
 					{
-						ship_state.armor[2] =
-							(ship_state.armor[2] + num_repaired).min(stats.armor[2])
+						ship_state.armor[2] = (ship_state.armor[2]
+							+ num_repaired * (1. + derived_stats.armor_repair))
+							.min(stats.armor[2])
 					}
 					3 =>
 					{
-						ship_state.armor[3] =
-							(ship_state.armor[3] + num_repaired).min(stats.armor[3])
+						ship_state.armor[3] = (ship_state.armor[3]
+							+ num_repaired * (1. + derived_stats.armor_repair))
+							.min(stats.armor[3])
 					}
-					4 => ship_state.hull = (ship_state.hull + num_repaired).min(stats.hull),
+					4 =>
+					{
+						ship_state.hull = (ship_state.hull
+							+ num_repaired * (1. + derived_stats.hull_repair))
+							.min(stats.hull)
+					}
 					5 =>
 					{
-						ship_state.infirmary =
-							(ship_state.infirmary + num_repaired).min(stats.infirmary)
+						ship_state.infirmary = (ship_state.infirmary
+							+ num_repaired * (1. + derived_stats.infirmary_repair))
+							.min(stats.infirmary)
 					}
-					6 => ship_state.sails = (ship_state.sails + num_repaired).min(stats.sails),
+					6 =>
+					{
+						ship_state.sails = (ship_state.sails
+							+ num_repaired * (1. + derived_stats.sail_repair))
+							.min(stats.sails)
+					}
 					_ => unreachable!(),
 				}
 			}
@@ -2184,7 +2235,8 @@ impl Map
 			// Each patient has a chance of getting better, weighed by infirmary strength... I
 			// guess it has more drugs?
 			let heal_prob = (dt as f32 * ship_state.infirmary.sqrt()
-				/ 100.0 / ship_state.wounded as f32)
+				/ 100.0 / ship_state.wounded as f32
+				* (1. + derived_stats.medic))
 				.min(1.);
 			for _ in 0..ship_state.wounded
 			{
@@ -2221,8 +2273,9 @@ impl Map
 
 			// X crew per weapon to reload it effectively.
 			let crew_per_weapon = 10;
-			let fire_rate_adjustment =
-				1. / crew_per_weapon as f32 * effective_crew.sqrt() / num_weapons as f32;
+			let fire_rate_adjustment = 1. / crew_per_weapon as f32 * effective_crew.sqrt()
+				/ num_weapons as f32
+				* (1. + derived_stats.reload_speed);
 			for slot in &mut equipment.slots
 			{
 				if slot.is_inventory
@@ -2390,9 +2443,12 @@ impl Map
 							if let Ok(mut equipment) =
 								self.world.get::<&mut comps::Equipment>(other_id)
 							{
+								let derived_stats = equipment.derived_stats();
 								for slot in &mut equipment.slots
 								{
-									if self.rng.gen_bool(destroy_prob as f64)
+									if self.rng.gen_bool(
+										(destroy_prob / (1. + derived_stats.item_protect)) as f64,
+									)
 									{
 										//println!("Destroyed {:?}", slot.item);
 										if !destroyed && other_id == self.player
@@ -2406,6 +2462,17 @@ impl Map
 											}
 										}
 										slot.item = None;
+									}
+									if destroyed
+									{
+										// Officers die.
+										if let Some(item) = slot.item.as_ref()
+										{
+											if let comps::ItemKind::Officer(_) = item.kind
+											{
+												slot.item = None;
+											}
+										}
 									}
 								}
 							}
@@ -2541,6 +2608,7 @@ impl Map
 			self.dock_entity = None;
 			if let Some(target_entity) = self.target_entity
 			{
+				let mut move_to = None;
 				if let (
 					Ok(player_pos),
 					Ok(mut player_target),
@@ -2550,7 +2618,6 @@ impl Map
 					Ok(_),
 					Ok(ship_state),
 					Ok(solid),
-					ai,
 				) = (
 					self.world.get::<&comps::Position>(self.player),
 					self.world.get::<&mut comps::Target>(self.player),
@@ -2560,24 +2627,36 @@ impl Map
 					self.world.get::<&comps::Equipment>(target_entity),
 					self.world.get::<&comps::ShipState>(target_entity),
 					self.world.get::<&comps::Solid>(target_entity),
-					self.world.get::<&mut comps::AI>(target_entity),
 				)
 				{
 					if ship_state.team.dock_with(&player_ship_state.team)
 					{
-						if let Ok(mut ai) = ai
-						{
-							ai.state = comps::AIState::Pause {
-								time_to_unpause: state.time() + 1.,
-							};
-						}
 						if (player_pos.pos.zx() - pos.pos.zx()).magnitude()
 							< 2.0 + solid.size + player_solid.size
 						{
 							player_target.clear(|m| to_die.push(m));
 							self.dock_entity = Some(target_entity);
 						}
+						else
+						{
+							move_to = Some(player_pos.pos);
+						}
 					}
+				}
+				if let (Ok(mut ai), Ok(mut target), Some(move_to)) = (
+					self.world.get::<&mut comps::AI>(target_entity),
+					self.world.get::<&mut comps::Target>(target_entity),
+					move_to,
+				)
+				{
+					ai.state = comps::AIState::Pause {
+						time_to_unpause: state.time() + 1.,
+					};
+					target.clear(|m| to_die.push(m));
+					target.waypoints.push(comps::Waypoint {
+						pos: move_to,
+						marker: None,
+					});
 				}
 			}
 		}
@@ -2624,6 +2703,7 @@ impl Map
 			.query::<(&comps::Position, &mut comps::Equipment, &comps::ShipState)>()
 			.iter()
 		{
+			let derived_stats = equipment.derived_stats();
 			// No buffering
 			let want_action_1 = equipment.want_action_1;
 			//equipment.want_action_1 = false;
@@ -2690,19 +2770,22 @@ impl Map
 								}
 								if let Some(spawn_dir) = spawn_dir
 								{
-									let rot = Rotation2::new(
-										self.rng
-											.gen_range(-weapon_stats.spread..=weapon_stats.spread),
-									);
+									let f = 1. + derived_stats.accuracy;
+									let rot = Rotation2::new(self.rng.gen_range(
+										-weapon_stats.spread / f..=weapon_stats.spread / f,
+									));
 									let spawn_dir = rot * spawn_dir;
 									let spawn_dir =
 										Vector3::new(spawn_dir.y, 0.5, spawn_dir.x).normalize();
+									let mut weapon_stats = weapon.stats().clone();
+									weapon_stats.critical_chance *=
+										1. + derived_stats.critical_chance;
 									spawn_projectiles.push((
 										spawn_pos,
 										spawn_dir,
 										id,
 										ship_state.team,
-										weapon.stats().clone(),
+										weapon_stats,
 									));
 									state.sfx.play_positional_sound(
 										"data/cannon_shot.ogg",
@@ -2868,7 +2951,7 @@ impl Map
 			)>()
 			.iter()
 		{
-			let sense_radius = 60.;
+			let sense_radius = 50.;
 			let attack_radius = 20.;
 			if Some(id) == self.dock_entity
 			{
@@ -2879,7 +2962,6 @@ impl Map
 			{
 				comps::AIState::Pause { time_to_unpause } =>
 				{
-					target.clear(|m| to_die.push(m));
 					if state.time() > time_to_unpause
 					{
 						ai.state = comps::AIState::Idle;
@@ -3104,7 +3186,10 @@ impl Map
 		for id in to_die
 		{
 			//println!("died {id:?}");
-			self.world.despawn(id)?;
+			if self.world.contains(id)
+			{
+				self.world.despawn(id)?;
+			}
 		}
 
 		Ok(None)

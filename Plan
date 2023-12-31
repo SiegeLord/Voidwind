@@ -1,9 +1,9 @@
 https://freesound.org/people/qubodup/sounds/187767/
 
 TODO:
-    - Economy.
-    - Special boss event + win condition
-    - Level Up message
+    - Menus
+    - Sounds
+    - Music
 
 To draw:
 
@@ -24,6 +24,9 @@ Extra:
     - For the target indicator, do an offscreen version of it.
 
 Done:
+    - Economy.
+    - Special boss event + win condition
+    - Level Up message
     - Itemization.
     - Item destruction.
     - Experience

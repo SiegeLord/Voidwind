@@ -23,10 +23,7 @@ impl Menu
 		state.paused = false;
 
 		Ok(Self {
-			subscreens: vec![ui::SubScreen::MainMenu(ui::MainMenu::new(
-				state.display_width,
-				state.display_height,
-			))],
+			subscreens: vec![ui::SubScreen::MainMenu(ui::MainMenu::new(state))],
 		})
 	}
 
@@ -63,11 +60,7 @@ impl Menu
 			{
 				ui::Action::Forward(subscreen_fn) =>
 				{
-					self.subscreens.push(subscreen_fn(
-						state,
-						state.display_width,
-						state.display_height,
-					));
+					self.subscreens.push(subscreen_fn(state));
 				}
 				ui::Action::Start => return Ok(Some(game_state::NextScreen::Game)),
 				ui::Action::Quit => return Ok(Some(game_state::NextScreen::Quit)),
@@ -85,6 +78,15 @@ impl Menu
 	{
 		state.core.clear_to_color(Color::from_rgb_f(0.5, 0., 0.));
 		self.subscreens.last().unwrap().draw(state);
+		Ok(())
+	}
+
+	pub fn change_buffers(&mut self, state: &mut game_state::GameState) -> Result<()>
+	{
+		self.subscreens
+			.push(ui::SubScreen::MainMenu(ui::MainMenu::new(state)));
+		self.subscreens
+			.push(ui::SubScreen::OptionsMenu(ui::OptionsMenu::new(state)));
 		Ok(())
 	}
 }

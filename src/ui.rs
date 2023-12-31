@@ -14,7 +14,7 @@ pub enum Action
 	Start,
 	Quit,
 	Back,
-	Forward(fn(&mut game_state::GameState, f32, f32) -> SubScreen),
+	Forward(fn(&mut game_state::GameState) -> SubScreen),
 	ToggleFullscreen,
 	ChangeInput(controls::Action, usize),
 	MouseSensitivity(f32),
@@ -779,12 +779,13 @@ pub struct MainMenu
 
 impl MainMenu
 {
-	pub fn new(display_width: f32, display_height: f32) -> Self
+	pub fn new(state: &game_state::GameState) -> Self
 	{
-		let w = 128.;
-		let h = 8.;
-		let cx = display_width / 2.;
-		let cy = display_height / 2. + 16.;
+		let m = state.m;
+		let w = m * 8.;
+		let h = m;
+		let cx = state.display_width / 2.;
+		let cy = state.display_height / 2.;
 
 		Self {
 			widgets: WidgetList::new(
@@ -807,9 +808,7 @@ impl MainMenu
 						w,
 						h,
 						"Controls",
-						Action::Forward(|s, dx, dy| {
-							SubScreen::ControlsMenu(ControlsMenu::new(s, dx, dy))
-						}),
+						Action::Forward(|s| SubScreen::ControlsMenu(ControlsMenu::new(s))),
 					))],
 					&[Widget::Button(Button::new(
 						0.,
@@ -817,9 +816,7 @@ impl MainMenu
 						w,
 						h,
 						"Options",
-						Action::Forward(|s, dx, dy| {
-							SubScreen::OptionsMenu(OptionsMenu::new(s, dx, dy))
-						}),
+						Action::Forward(|s| SubScreen::OptionsMenu(OptionsMenu::new(s))),
 					))],
 					&[Widget::Button(Button::new(
 						0.,
@@ -853,12 +850,12 @@ pub struct ControlsMenu
 
 impl ControlsMenu
 {
-	pub fn new(state: &game_state::GameState, display_width: f32, display_height: f32) -> Self
+	pub fn new(state: &game_state::GameState) -> Self
 	{
-		let w = 40.;
-		let h = 8.;
-		let cx = display_width / 2.;
-		let cy = display_height / 2.;
+		let w = state.m * 6.;
+		let h = state.m;
+		let cx = state.display_width / 2.;
+		let cy = state.display_height / 2.;
 
 		let mut widgets = vec![];
 		// widgets.push(vec![
@@ -1024,12 +1021,13 @@ pub struct OptionsMenu
 
 impl OptionsMenu
 {
-	pub fn new(state: &game_state::GameState, display_width: f32, display_height: f32) -> Self
+	pub fn new(state: &game_state::GameState) -> Self
 	{
-		let w = 50.;
-		let h = 8.;
-		let cx = display_width / 2.;
-		let cy = display_height / 2.;
+		let m = state.m;
+		let w = m * 6.;
+		let h = m;
+		let cx = state.display_width / 2.;
+		let cy = state.display_height / 2.;
 
 		let widgets = [
 			vec![
@@ -1141,12 +1139,13 @@ pub struct InGameMenu
 
 impl InGameMenu
 {
-	pub fn new(display_width: f32, display_height: f32) -> Self
+	pub fn new(state: &game_state::GameState) -> Self
 	{
-		let w = 40.;
-		let h = 8.;
-		let cx = display_width / 2.;
-		let cy = display_height / 2.;
+		let m = state.m;
+		let w = m * 6.;
+		let h = m;
+		let cx = state.display_width / 2.;
+		let cy = state.display_height / 2.;
 
 		Self {
 			widgets: WidgetList::new(
@@ -1169,9 +1168,7 @@ impl InGameMenu
 						w,
 						h,
 						"Controls",
-						Action::Forward(|s, dx, dy| {
-							SubScreen::ControlsMenu(ControlsMenu::new(s, dx, dy))
-						}),
+						Action::Forward(|s| SubScreen::ControlsMenu(ControlsMenu::new(s))),
 					))],
 					&[Widget::Button(Button::new(
 						0.,
@@ -1179,9 +1176,7 @@ impl InGameMenu
 						w,
 						h,
 						"Options",
-						Action::Forward(|s, dx, dy| {
-							SubScreen::OptionsMenu(OptionsMenu::new(s, dx, dy))
-						}),
+						Action::Forward(|s| SubScreen::OptionsMenu(OptionsMenu::new(s))),
 					))],
 					&[Widget::Button(Button::new(
 						0.,

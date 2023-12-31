@@ -188,7 +188,7 @@ impl GameState
 	pub fn new() -> Result<Self>
 	{
 		let core = Core::init()?;
-		core.set_app_name("SH2023");
+		core.set_app_name("Voidwind");
 		core.set_org_name("SiegeLord");
 
 		let options = load_options(&core)?;
@@ -203,9 +203,8 @@ impl GameState
 
 		let sfx = sfx::Sfx::new(options.sfx_volume, options.music_volume, &core)?;
 
-		//let ui_font = utils::load_ttf_font(&ttf, "data/MavenPro-Bold.ttf", 24)?;
-		let ui_font = utils::load_ttf_font(&ttf, "data/LibreBaskerville-Bold.ttf", 24)?;
-		let m = ui_font.get_line_height() as f32;
+		let ui_font =
+			Font::new_builtin(&font).map_err(|_| "Could't create builtin font.".to_string())?;
 
 		let controls = controls::ControlsHandler::new(options.controls.clone());
 		Ok(Self {
@@ -238,14 +237,12 @@ impl GameState
 			buffer: None,
 			light_buffer: None,
 			g_buffer: None,
-			m: m,
+			m: 0.,
 		})
 	}
 
 	pub fn post_init(&mut self, display: &mut Display) -> Result<()>
 	{
-		self.display_width = display.get_width() as f32;
-		self.display_height = display.get_height() as f32;
 		self.basic_shader =
 			make_shader(display, "data/basic_vertex.glsl", "data/basic_pixel.glsl")?;
 		self.water_shader =
@@ -262,6 +259,15 @@ impl GameState
 
 		self.default_shader = make_default_shader(&self.core, display)?;
 
+		self.create_buffers(display)?;
+
+		Ok(())
+	}
+
+	pub fn create_buffers(&mut self, display: &mut Display) -> Result<()>
+	{
+		self.display_width = display.get_width() as f32;
+		self.display_height = display.get_height() as f32;
 		self.core.set_new_bitmap_depth(16);
 		self.light_buffer = Some(
 			Bitmap::new(
@@ -284,6 +290,14 @@ impl GameState
 			self.display_width as i32,
 			self.display_height as i32,
 		)?);
+		let ui_font = utils::load_ttf_font(
+			&self.ttf,
+			"data/LibreBaskerville-Bold.ttf",
+			display.get_height() / 45,
+		)?;
+		let m = ui_font.get_line_height() as f32;
+		self.ui_font = ui_font;
+		self.m = m;
 		Ok(())
 	}
 

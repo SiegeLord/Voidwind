@@ -3,7 +3,7 @@
 version = 3
 
 [[package]]
-name = "SH2023"
+name = "Voidwind"
 version = "0.1.0"
 dependencies = [
  "allegro",

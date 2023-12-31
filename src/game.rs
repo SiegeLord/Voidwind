@@ -744,10 +744,7 @@ impl Game
 			if in_game_menu
 			{
 				self.subscreens
-					.push(ui::SubScreen::InGameMenu(ui::InGameMenu::new(
-						state.display_width,
-						state.display_height,
-					)));
+					.push(ui::SubScreen::InGameMenu(ui::InGameMenu::new(state)));
 				state.paused = true;
 			}
 		}
@@ -762,11 +759,7 @@ impl Game
 				{
 					ui::Action::Forward(subscreen_fn) =>
 					{
-						self.subscreens.push(subscreen_fn(
-							state,
-							state.display_width,
-							state.display_height,
-						));
+						self.subscreens.push(subscreen_fn(state));
 					}
 					ui::Action::Start =>
 					{
@@ -837,6 +830,20 @@ impl Game
 			// 	state,
 			// );
 		}
+		Ok(())
+	}
+
+	pub fn change_buffers(&mut self, state: &mut game_state::GameState) -> Result<()>
+	{
+		self.hud = HUD::new(state);
+		self.map.buffer_width = state.display_width;
+		self.map.buffer_height = state.display_height;
+		self.subscreens.clear();
+		self.subscreens
+			.push(ui::SubScreen::InGameMenu(ui::InGameMenu::new(state)));
+		self.subscreens
+			.push(ui::SubScreen::OptionsMenu(ui::OptionsMenu::new(state)));
+
 		Ok(())
 	}
 }

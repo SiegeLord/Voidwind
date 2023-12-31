@@ -208,6 +208,13 @@ fn real_main() -> Result<()>
 				{
 					display.set_flag(FULLSCREEN_WINDOW, state.options.fullscreen);
 					old_fullscreen = state.options.fullscreen;
+					state.create_buffers(&mut display)?;
+
+					match &mut cur_screen
+					{
+						Screen::Game(game) => game.change_buffers(&mut state)?,
+						Screen::Menu(menu) => menu.change_buffers(&mut state)?,
+					}
 				}
 
 				logics_without_draw += 1;

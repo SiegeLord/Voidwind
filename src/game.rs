@@ -2679,7 +2679,7 @@ impl Map
 		{
 			let derived_stats = equipment.derived_stats();
 			// No buffering
-			let want_attack = equipment.want_action_1;
+			let want_attack = equipment.want_attack;
 			//equipment.want_attack = false;
 			for slot in &mut equipment.slots
 			{

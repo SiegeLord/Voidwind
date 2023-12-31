@@ -2,6 +2,7 @@ use crate::error::Result;
 use crate::{
 	astar, components as comps, controls, game_state, mesh, spatial_grid, sprite, ui, utils,
 };
+use crate::utils::ColorExt;
 use allegro::*;
 use allegro_font::*;
 use allegro_primitives::*;
@@ -24,7 +25,7 @@ const CELL_SIZE: i32 = 128;
 const CELL_RADIUS: i32 = 2;
 const SLOT_WIDTH: f32 = 64.;
 const CREW_COST: i32 = 20;
-const MESSAGE_DURATION: f32 = 5.;
+const MESSAGE_DURATION: f32 = 10.;
 const EQUIPMENT_FRAC: f32 = 0.6;
 const ECONOMY_INTERVAL: f64 = 30.;
 
@@ -81,7 +82,7 @@ fn frac_to_color(f: f32) -> Color
 {
 	if f == 1.
 	{
-		Color::from_rgb_f(1., 1., 1.)
+		ui::ui_color()
 	}
 	else if f < 0.33
 	{
@@ -443,6 +444,7 @@ impl HUD
 
 	fn draw(&self, map: &Map, state: &game_state::GameState)
 	{
+        let ui_color = ui::ui_color();
 		let (dw, dh) = (self.buffer_width, self.buffer_height);
 		let m = state.m;
 
@@ -569,7 +571,7 @@ impl HUD
 		}
 		state.core.draw_text(
 			&state.ui_font,
-			Color::from_rgb_f(1., 1., 1.),
+			ui_color,
 			dw / 2.0,
 			16.,
 			FontAlign::Centre,
@@ -584,7 +586,7 @@ impl HUD
 			let f = 1. - (state.time() - time) as f32 / MESSAGE_DURATION;
 			state.core.draw_text(
 				&state.ui_font,
-				Color::from_rgba_f(f, f, f, f),
+				ui_color.interpolate(Color::from_rgba(0, 0, 0, 0), 1. - f),
 				dw / 2.0,
 				dh / 4.0 - i as f32 * lh * 1.5 + num_messages as f32 * lh * 1.5,
 				FontAlign::Centre,
@@ -1386,6 +1388,7 @@ impl EquipmentScreen
 	{
 		let m = state.m;
 		let lh = state.ui_font.get_line_height() as f32;
+        let ui_color = ui::ui_color();
 		if map.dock_entity.is_some()
 		{
 			state.prim.draw_filled_rectangle(
@@ -1449,7 +1452,7 @@ impl EquipmentScreen
 					pos.y + w / 2.,
 					8.,
 					8.,
-					Color::from_rgb_f(1., 1., 1.),
+					ui_color,
 					3.,
 				);
 
@@ -1466,7 +1469,7 @@ impl EquipmentScreen
 						w,
 						-slot_dir - arc / 2. + PI * 3. / 2.,
 						arc,
-						Color::from_rgba_f(1., 1., 1., 1.),
+						ui_color,
 						4.,
 					);
 				}
@@ -1474,13 +1477,13 @@ impl EquipmentScreen
 
 			if let Some((pos, equipment_idx, item)) = hover_item
 			{
-				let white = Color::from_rgb_f(1., 1., 1.);
+				let ui_color = ui::ui_color();
 				let price_desc = if do_trade
 				{
 					let price = item.price;
 					vec![
 						(format!("Price: {price}"), Color::from_rgb_f(1., 0.6, 0.2)),
-						("".into(), white),
+						("".into(), ui_color),
 					]
 				}
 				else
@@ -1495,7 +1498,7 @@ impl EquipmentScreen
 					.iter()
 					.map(|(s, c)| (s.as_str(), *c))
 					.chain(name.iter().map(|(s, c)| (*s, *c)))
-					.chain(desc.lines().map(|s| (s, white)))
+					.chain(desc.lines().map(|s| (s, ui_color)))
 					.collect();
 
 				state.prim.draw_filled_rectangle(
@@ -1562,13 +1565,14 @@ fn draw_ship_state(
 )
 {
 	let mut y = y;
+    let ui_color = ui::ui_color();
 
 	let m = state.m;
 	let lh = state.ui_font.get_line_height() as f32;
 
 	state.core.draw_text(
 		&state.ui_font,
-		Color::from_rgb_f(1., 1., 1.),
+		ui_color,
 		x,
 		y - lh / 2. - m * 5.,
 		FontAlign::Centre,
@@ -1577,7 +1581,7 @@ fn draw_ship_state(
 
 	state.core.draw_text(
 		&state.ui_font,
-		Color::from_rgb_f(1., 1., 1.),
+		ui_color,
 		x - m * 4.,
 		y - lh / 2. - m * 3.5,
 		FontAlign::Left,
@@ -1606,7 +1610,7 @@ fn draw_ship_state(
 
 		state.core.draw_text(
 			&state.ui_font,
-			Color::from_rgba_f(1., 1., 1., 1.),
+			frac_to_color(f),
 			lx,
 			ly - lh / 2.,
 			FontAlign::Centre,
@@ -2047,7 +2051,11 @@ impl Map
 			cells: cells,
 			zoom: 1.,
 			money: 500,
-			messages: vec![],
+			messages: vec![
+                ("Transcend the Sea".into(), state.time()),
+                ("Hunt the Voidwind".into(), state.time()),
+                ("Sail North".into(), state.time()),
+            ],
 			level: 1,
 			global_offset: Vector2::new(0, 0),
 			economy: economy,

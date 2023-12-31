@@ -1,10 +1,17 @@
 use crate::error::Result;
 use crate::{components, controls, game_state, utils};
 
+use crate::utils::ColorExt;
+
 use allegro::*;
 use allegro_font::*;
 use allegro_sys::*;
 use nalgebra::{Matrix4, Point2, Vector2, Vector3};
+
+pub fn ui_color() -> Color
+{
+    Color::from_rgb_f(0.6, 0.8, 0.9)
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action
@@ -63,7 +70,7 @@ impl Button
 		}
 		else
 		{
-			Color::from_rgb(95, 205, 228)
+			ui_color()
 		};
 
 		state.core.draw_text(
@@ -171,7 +178,7 @@ impl Toggle
 		}
 		else
 		{
-			Color::from_rgb(95, 205, 228)
+			ui_color()
 		};
 
 		state.core.draw_text(
@@ -282,7 +289,7 @@ impl Slider
 		}
 		else
 		{
-			Color::from_rgb(95, 205, 228)
+			ui_color()
 		};
 
 		let w = self.width();
@@ -439,7 +446,7 @@ impl Label
 	{
 		state.core.draw_text(
 			&state.ui_font,
-			Color::from_rgb_f(0.8 * 0.37, 0.8 * 0.8, 0.8 * 0.89),
+			ui_color().interpolate(Color::from_rgb(0, 0, 0), 0.3),
 			self.loc.x,
 			self.loc.y - state.ui_font.get_line_height() as f32 / 2.,
 			FontAlign::Centre,

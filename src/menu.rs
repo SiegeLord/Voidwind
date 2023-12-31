@@ -3,6 +3,7 @@ use crate::{components, controls, game_state, ui, utils};
 
 use allegro::*;
 use allegro_sys::*;
+use allegro_font::*;
 use nalgebra::{Matrix4, Point2};
 use rand::prelude::*;
 
@@ -21,6 +22,8 @@ impl Menu
 	pub fn new(state: &mut game_state::GameState) -> Result<Self>
 	{
 		state.paused = false;
+
+		state.cache_bitmap("data/title.png")?;
 
 		Ok(Self {
 			subscreens: vec![ui::SubScreen::MainMenu(ui::MainMenu::new(state))],
@@ -76,7 +79,24 @@ impl Menu
 
 	pub fn draw(&mut self, state: &game_state::GameState) -> Result<()>
 	{
-		state.core.clear_to_color(Color::from_rgb_f(0.5, 0., 0.));
+		state.core.clear_to_color(Color::from_rgb_f(0., 0., 0.));
+		let bmp = state.get_bitmap("data/title.png")?;
+		let dw = state.display_width;
+		let dh = state.display_height;
+		state.core.draw_bitmap(
+			bmp,
+			dw / 2. - bmp.get_width() as f32 / 2.,
+			dh / 2. - bmp.get_height() as f32 / 2.,
+			Flag::zero(),
+		);
+		state.core.draw_text(
+			&state.title_font,
+			Color::from_rgb_f(0.4, 0.1, 0.5),
+			dw / 2.,
+			dh / 4.,
+			FontAlign::Centre,
+			"Voidwind",
+		);
 		self.subscreens.last().unwrap().draw(state);
 		Ok(())
 	}

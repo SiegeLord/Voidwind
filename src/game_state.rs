@@ -156,6 +156,7 @@ pub struct GameState
 	pub sfx: sfx::Sfx,
 	pub atlas: atlas::Atlas,
 	pub ui_font: Font,
+	pub title_font: Font,
 	//pub number_font: Font,
 	pub options: Options,
 	pub draw_scale: f32,
@@ -205,6 +206,8 @@ impl GameState
 
 		let ui_font =
 			Font::new_builtin(&font).map_err(|_| "Could't create builtin font.".to_string())?;
+		let title_font =
+			Font::new_builtin(&font).map_err(|_| "Could't create builtin font.".to_string())?;
 
 		let controls = controls::ControlsHandler::new(options.controls.clone());
 		Ok(Self {
@@ -222,6 +225,7 @@ impl GameState
 			paused: false,
 			atlas: atlas::Atlas::new(512),
 			ui_font: ui_font,
+			title_font: title_font,
 			draw_scale: 1.,
 			display_width: 0.,
 			display_height: 0.,
@@ -295,8 +299,14 @@ impl GameState
 			"data/LibreBaskerville-Bold.ttf",
 			display.get_height() / 45,
 		)?;
+		let title_font = utils::load_ttf_font(
+			&self.ttf,
+			"data/LibreBaskerville-Bold.ttf",
+			display.get_height() / 24,
+		)?;
 		let m = ui_font.get_line_height() as f32;
 		self.ui_font = ui_font;
+		self.title_font = title_font;
 		self.m = m;
 		Ok(())
 	}

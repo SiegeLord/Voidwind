@@ -30,9 +30,9 @@ impl Default for Options
 	fn default() -> Self
 	{
 		Self {
-			fullscreen: false,
-			width: 960,
-			height: 864,
+			fullscreen: true,
+			width: 1920,
+			height: 1080,
 			play_music: true,
 			vsync_method: 2,
 			sfx_volume: 1.,

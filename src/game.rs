@@ -2814,7 +2814,7 @@ impl Map
 
 		if want_move && mouse_in_buffer && player_alive
 		{
-			state.sfx.play_sound("data/order.ogg").unwrap();
+			//state.sfx.play_sound("data/order.ogg").unwrap();
 			state.controls.clear_action_state(controls::Action::Move);
 			self.dock_entity = None;
 			let marker = make_target(mouse_ground_pos, &mut self.world, state)?;
@@ -2866,7 +2866,6 @@ impl Map
 		}
 		if want_dock && player_alive && self.target_entity != Some(self.player)
 		{
-			state.sfx.play_sound("data/order.ogg").unwrap();
 			state.controls.clear_action_state(controls::Action::Dock);
 			self.dock_entity = None;
 			if let Some(target_entity) = self.target_entity
@@ -2895,6 +2894,7 @@ impl Map
 				{
 					if ship_state.team.dock_with(&player_ship_state.team)
 					{
+						state.sfx.play_sound("data/order.ogg").unwrap();
 						if (player_pos.pos.zx() - pos.pos.zx()).magnitude()
 							< 2.0 + solid.size + player_solid.size
 						{

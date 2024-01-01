@@ -480,7 +480,7 @@ impl Controls
 	pub fn new() -> Self
 	{
 		let mut action_to_inputs = BTreeMap::new();
-		action_to_inputs.insert(Action::Move, [Some(Input::MouseButton(0)), None]);
+		action_to_inputs.insert(Action::Move, [Some(Input::MouseButton(1)), None]);
 		action_to_inputs.insert(
 			Action::Stop,
 			[Some(Input::Keyboard(allegro::KeyCode::S)), None],
@@ -491,7 +491,7 @@ impl Controls
 		);
 		action_to_inputs.insert(
 			Action::Attack,
-			[Some(Input::Keyboard(allegro::KeyCode::Q)), None],
+			[Some(Input::Keyboard(allegro::KeyCode::Space)), None],
 		);
 		action_to_inputs.insert(
 			Action::Inventory,
@@ -507,7 +507,7 @@ impl Controls
 			Action::Board,
 			[Some(Input::Keyboard(allegro::KeyCode::Space)), None],
 		);
-		action_to_inputs.insert(Action::Target, [Some(Input::MouseButton(1)), None]);
+		action_to_inputs.insert(Action::Target, [Some(Input::MouseButton(2)), None]);
 
 		Self {
 			action_to_inputs: action_to_inputs,

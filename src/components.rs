@@ -1697,7 +1697,7 @@ pub fn generate_weapon_name(rng: &mut impl Rng) -> String
 		"Behemothic ",
 		"Thin ",
 		"Steel ",
-		"Adamnantine ",
+		"Adamantine ",
 		"Golden ",
 		"Shadow ",
 		"Night ",

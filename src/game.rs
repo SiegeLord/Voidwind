@@ -411,17 +411,19 @@ impl HUD
 
 	fn input(&mut self, event: &Event, _map: &mut Map, state: &mut game_state::GameState) -> bool
 	{
+		let mut over_ui = false;
 		for (i, button) in &mut self.buttons.iter_mut().enumerate()
 		{
 			let old_on = button.on;
-			button.input(event);
+			over_ui |= button.input(event);
 			if !old_on && button.on
 			{
 				self.toggled.push(i);
 			}
 		}
 		self.toggled.retain(|i| self.buttons[*i].on);
-		self.over_ui(state)
+		//self.over_ui(state)
+		over_ui
 	}
 
 	fn logic(&mut self, map: &mut Map, _state: &game_state::GameState)
@@ -2220,7 +2222,7 @@ impl Map
 					//self.player_pos + Vector3::new(0., 0., 100.),
 					"data/boss_ship.cfg",
 					comps::Team::Pirate,
-					15,
+					(-self.global_offset.y + 10).max(15),
 					&mut self.rng,
 					&mut self.world,
 					state,

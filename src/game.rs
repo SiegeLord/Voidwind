@@ -2220,7 +2220,7 @@ impl Map
 					//self.player_pos + Vector3::new(0., 0., 100.),
 					"data/boss_ship.cfg",
 					comps::Team::Pirate,
-					30,
+					15,
 					&mut self.rng,
 					&mut self.world,
 					state,
@@ -2740,17 +2740,7 @@ impl Map
 							if let Some(mut ship_state) = parent_id
 								.and_then(|id| self.world.get::<&mut comps::ShipState>(id).ok())
 							{
-								let level_diff = (ship_state.level - level).abs();
-								let f = if level_diff < 5
-								{
-									1.
-								}
-								else
-								{
-									0.3_f32.powi(level_diff - 4)
-								};
-								ship_state.experience +=
-									f * exp_bonus * comps::enemy_experience(level);
+								ship_state.experience += exp_bonus * comps::enemy_experience(level);
 								//dbg!(ship_state.experience);
 								let old_level = ship_state.level;
 								ship_state.compute_level();
@@ -3214,7 +3204,7 @@ impl Map
 			)>()
 			.iter()
 		{
-			let sense_radius = 50.;
+			let sense_radius = 40.;
 			let attack_radius = 20.;
 			if Some(id) == self.dock_entity
 			{

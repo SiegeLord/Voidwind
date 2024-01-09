@@ -253,7 +253,14 @@ impl Cell
 					"data/big_ship.cfg",
 				][idx],
 				team,
-				level,
+				if team == comps::Team::Pirate
+				{
+					level + 3
+				}
+				else
+				{
+					level
+				},
 				rng,
 				world,
 				state,

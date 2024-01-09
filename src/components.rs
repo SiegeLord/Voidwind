@@ -804,6 +804,7 @@ impl ItemKind
 
 				let fire_interval = stats.fire_interval;
 				let arc = (stats.arc / PI * 180.) as i32;
+				let spread = (stats.spread / PI * 180.) as i32;
 				let damage = stats.damage as i32;
 				let level = weapon.level;
 				let mut desc = vec![
@@ -812,6 +813,7 @@ impl ItemKind
 					format!("Damage: {damage}"),
 					format!("Reload Time: {fire_interval:.1} sec"),
 					format!("Arc: {arc}°"),
+					format!("Spread: {spread}°"),
 					"".into(),
 				];
 

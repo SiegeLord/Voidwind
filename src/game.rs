@@ -2792,6 +2792,10 @@ impl Map
 				|_| true,
 			);
 
+			if want_target
+			{
+				self.target_entity = None;
+			}
 			if let Some(entry) = mouse_entries.first()
 			{
 				if entry.inner.entity != self.player

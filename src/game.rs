@@ -693,7 +693,7 @@ impl Game
 		{
 			state.controls.decode_event(event);
 			let want_move = state.controls.get_action_state(controls::Action::Move) > 0.5;
-			if self.map.dock_entity.is_some() && want_move
+			if self.map.dock_entity.is_some() && want_move && self.equipment_screen.is_some()
 			{
 				self.equipment_screen
 					.as_mut()

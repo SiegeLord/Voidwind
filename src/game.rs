@@ -2293,7 +2293,7 @@ impl Map
 		self.player_pos -= offt;
 		if offt.magnitude() > 0.0
 		{
-			dbg!("recentered");
+			//dbg!("recentered");
 		}
 		timer.record(&state.core);
 

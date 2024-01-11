@@ -26,6 +26,8 @@ use rand::prelude::*;
 use serde_derive::{Deserialize, Serialize};
 use std::rc::Rc;
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 enum Screen
 {
 	Game(game::Game),
@@ -34,6 +36,8 @@ enum Screen
 
 fn real_main() -> Result<()>
 {
+	println!("Version: {VERSION}");
+
 	let mut state = game_state::GameState::new()?;
 
 	let mut flags = OPENGL | OPENGL_3_0 | PROGRAMMABLE_PIPELINE;
@@ -146,13 +150,13 @@ fn real_main() -> Result<()>
 				{
 					sum += v;
 				}
-				println!("FPS: {:.2}", 1. / (sum / frame_times.len() as f64));
+				//~ println!("FPS: {:.2}", 1. / (sum / frame_times.len() as f64));
 				let mut sum = 0.;
 				for v in &logic_times
 				{
 					sum += v;
 				}
-				println!("LPS: {:.2}", 1. / (sum / logic_times.len() as f64));
+				//~ println!("LPS: {:.2}", 1. / (sum / logic_times.len() as f64));
 			}
 			logics_without_draw = 0;
 			draw = false;

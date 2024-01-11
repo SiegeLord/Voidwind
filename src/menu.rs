@@ -97,6 +97,14 @@ impl Menu
 			FontAlign::Centre,
 			"Voidwind",
 		);
+		state.core.draw_text(
+			&state.ui_font,
+			ui::ui_color(),
+			state.m,
+			dh - 2. * state.m,
+			FontAlign::Left,
+			&format!("Version: {}", game_state::VERSION),
+		);
 		self.subscreens.last().unwrap().draw(state);
 		Ok(())
 	}

@@ -26,8 +26,6 @@ use rand::prelude::*;
 use serde_derive::{Deserialize, Serialize};
 use std::rc::Rc;
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-
 enum Screen
 {
 	Game(game::Game),
@@ -36,7 +34,7 @@ enum Screen
 
 fn real_main() -> Result<()>
 {
-	println!("Version: {VERSION}");
+	println!("Version: {}", game_state::VERSION);
 
 	let mut state = game_state::GameState::new()?;
 

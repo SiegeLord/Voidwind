@@ -11,6 +11,8 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::{fmt, path, sync};
 
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Options
 {

@@ -2223,7 +2223,7 @@ impl Map
 			}
 			if self.boss.is_none()
 			{
-				println!("Spawned boss");
+				//println!("Spawned boss");
 				let boss = make_ship(
 					Cell::cell_to_world(new_cell_centers[0]),
 					//self.player_pos + Vector3::new(0., 0., 100.),

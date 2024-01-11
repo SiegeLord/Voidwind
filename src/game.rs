@@ -2795,6 +2795,7 @@ impl Map
 			if want_target
 			{
 				self.target_entity = None;
+				state.controls.clear_action_state(controls::Action::Target);
 			}
 			if let Some(entry) = mouse_entries.first()
 			{
